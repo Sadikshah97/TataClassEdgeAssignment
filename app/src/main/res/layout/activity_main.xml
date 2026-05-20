@@ -1,10 +1,118 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.constraintlayout.widget.ConstraintLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
-    xmlns:tools="http://schemas.android.com/tools"
-    android:id="@+id/main"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    tools:context=".ui.activity.MainActivity">
+    android:background="#F0F0F0">
+
+    <!-- LEFT TOOLBAR with RecyclerView -->
+    <LinearLayout
+        android:id="@+id/leftToolbar"
+        android:layout_width="72dp"
+        android:layout_height="0dp"
+        android:orientation="vertical"
+        android:background="#FFFFFF"
+        android:elevation="6dp"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent">
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/toolsRecyclerView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:padding="4dp"
+            android:scrollbars="none"
+            android:overScrollMode="never"/>
+
+    </LinearLayout>
+
+    <!-- RIGHT PANEL with RecyclerView for colors + slider + buttons -->
+    <LinearLayout
+        android:id="@+id/rightPanel"
+        android:layout_width="76dp"
+        android:layout_height="0dp"
+        android:orientation="vertical"
+        android:background="#FFFFFF"
+        android:elevation="6dp"
+        android:gravity="center_horizontal"
+        android:padding="6dp"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <!-- Colors label -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Color"
+            android:textSize="9sp"
+
+            android:textColor="#999999"
+            android:layout_marginBottom="4dp"/>
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/colorsRecyclerView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:scrollbars="none"
+            android:overScrollMode="never"/>
+
+        <View android:layout_width="match_parent" android:layout_height="1dp"
+            android:background="#E0E0E0" android:layout_marginVertical="8dp"/>
+
+        <!-- Stroke label -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Size"
+            android:textSize="9sp"
+            android:textColor="#999999"/>
+
+        <com.google.android.material.slider.Slider
+            android:id="@+id/strokeWidthSlider"
+            android:layout_width="56dp"
+            android:layout_height="wrap_content"
+            android:rotation="270"
+            android:valueFrom="2"
+            android:valueTo="30"
+            android:value="5"
+            android:stepSize="1"
+            android:layout_marginVertical="44dp"/>
+
+        <View android:layout_width="match_parent" android:layout_height="1dp"
+            android:background="#E0E0E0" android:layout_marginVertical="8dp"/>
+
+        <Button
+            android:id="@+id/btnSave"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="60dp"
+            android:layout_height="36dp"
+            android:text="Save"
+            android:textSize="9sp"
+            android:layout_marginBottom="6dp"/>
+
+        <Button
+            android:id="@+id/btnLoad"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="60dp"
+            android:layout_height="36dp"
+            android:text="Load"
+            android:textSize="9sp"/>
+
+    </LinearLayout>
+
+    <!-- CANVAS -->
+    <com.example.tataclassedgeassignment.views.WhiteboardView
+        android:id="@+id/whiteboardView"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:background="#FFFFFF"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toEndOf="@id/leftToolbar"
+        app:layout_constraintEnd_toStartOf="@id/rightPanel"/>
 
 </androidx.constraintlayout.widget.ConstraintLayout>

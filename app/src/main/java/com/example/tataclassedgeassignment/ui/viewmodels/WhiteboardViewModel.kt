@@ -1,8 +1,5 @@
 package com.example.tataclassedgeassignment.ui.viewmodels
 
-
-// viewmodels/WhiteboardViewModel.kt
-
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.tataclassedgeassignment.domain.repository.WhiteboardRepository
@@ -77,7 +74,23 @@ class WhiteboardViewModel @Inject constructor(
         _texts.value = _texts.value + text
         redoStack.clear()
     }
+    fun updateTextAt(index: Int, updated: TextModel) {
+        pushUndoSnapshot()
+        val list = _texts.value.toMutableList()
+        if (index in list.indices) {
+            list[index] = updated
+            _texts.value = list
+        }
+    }
 
+    fun deleteTextAt(index: Int) {
+        pushUndoSnapshot()
+        val list = _texts.value.toMutableList()
+        if (index in list.indices) {
+            list.removeAt(index)
+            _texts.value = list
+        }
+    }
     fun updateStrokes(strokes: List<StrokeModel>) {
         _strokes.value = strokes
     }
@@ -138,4 +151,5 @@ class WhiteboardViewModel @Inject constructor(
     fun clearSaveMessage() {
         _saveMessage.value = null
     }
+
 }
