@@ -82,7 +82,117 @@ class WhiteboardViewModel @Inject constructor(
             _texts.value = list
         }
     }
+    fun removeShapesInArea(x: Float, y: Float, radius: Float) {
+        // ❌ Remove pushUndoSnapshot() from here — called on every move event!
+        _shapes.value = _shapes.value.filter { shape ->
+            !isShapeTouchedByEraser(shape, x, y, radius)
+        }
+        /*_strokes.value = _strokes.value.filter { stroke ->
+            !isStrokeTouchedByEraser(stroke, x, y, radius)
+        }*/
+        _texts.value = _texts.value.filter { text ->
+            !isTextTouchedByEraser(text, x, y, radius)
+        }
+    }
 
+    // ✅ Call this ONCE when erase stroke begins
+    fun beginErase() {
+        pushUndoSnapshot()
+        redoStack.clear()
+    }
+
+    private fun isShapeTouchedByEraser(shape: ShapeModel, ex: Float, ey: Float, radius: Float): Boolean {
+        return when (shape.type) {
+            "rectangle" -> {
+                val left   = minOf(shape.startX, shape.endX)
+                val right  = maxOf(shape.startX, shape.endX)
+                val top    = minOf(shape.startY, shape.endY)
+                val bottom = maxOf(shape.startY, shape.endY)
+
+                // Check proximity to each of the 4 edges (not filled area)
+                val nearLeftEdge   = ex in (left - radius)..(left + radius)   && ey in top..bottom
+                val nearRightEdge  = ex in (right - radius)..(right + radius)  && ey in top..bottom
+                val nearTopEdge    = ey in (top - radius)..(top + radius)      && ex in left..right
+                val nearBottomEdge = ey in (bottom - radius)..(bottom + radius) && ex in left..right
+
+                nearLeftEdge || nearRightEdge || nearTopEdge || nearBottomEdge
+            }
+
+            "circle" -> {
+                val cx = (shape.startX + shape.endX) / 2
+                val cy = (shape.startY + shape.endY) / 2
+                val rx = Math.abs(shape.endX - shape.startX) / 2
+                val ry = Math.abs(shape.endY - shape.startY) / 2
+                // Distance from eraser to ellipse boundary
+                val normalizedDist = Math.sqrt(
+                    ((ex - cx) * (ex - cx) / (rx * rx) +
+                            (ey - cy) * (ey - cy) / (ry * ry)).toDouble()
+                )
+                // Near the ellipse stroke (not inside/outside)
+                normalizedDist in 0.7..1.3
+            }
+
+            "line" -> {
+                val dx  = shape.endX - shape.startX
+                val dy  = shape.endY - shape.startY
+                val len = Math.sqrt((dx * dx + dy * dy).toDouble()).toFloat()
+                if (len == 0f) return false
+                val t = (((ex - shape.startX) * dx + (ey - shape.startY) * dy) / (len * len))
+                    .coerceIn(0f, 1f)
+                val nearX = shape.startX + t * dx
+                val nearY = shape.startY + t * dy
+                Math.sqrt(((ex - nearX) * (ex - nearX) + (ey - nearY) * (ey - nearY)).toDouble()) < radius
+            }
+
+            "polygon" -> {
+                val cx     = (shape.startX + shape.endX) / 2
+                val cy     = (shape.startY + shape.endY) / 2
+                val radius2 = minOf(
+                    Math.abs(shape.endX - shape.startX),
+                    Math.abs(shape.endY - shape.startY)
+                ) / 2
+                val sides  = 5
+                // Check proximity to each polygon edge
+                var touched = false
+                for (i in 0 until sides) {
+                    val angle1 = (2.0 * Math.PI * i / sides - Math.PI / 2)
+                    val angle2 = (2.0 * Math.PI * (i + 1) / sides - Math.PI / 2)
+                    val x1 = cx + radius2 * Math.cos(angle1).toFloat()
+                    val y1 = cy + radius2 * Math.sin(angle1).toFloat()
+                    val x2 = cx + radius2 * Math.cos(angle2).toFloat()
+                    val y2 = cy + radius2 * Math.sin(angle2).toFloat()
+
+                    // Distance from eraser point to this polygon edge
+                    val edgeDx  = x2 - x1
+                    val edgeDy  = y2 - y1
+                    val edgeLen = Math.sqrt((edgeDx * edgeDx + edgeDy * edgeDy).toDouble()).toFloat()
+                    if (edgeLen == 0f) continue
+                    val t = (((ex - x1) * edgeDx + (ey - y1) * edgeDy) / (edgeLen * edgeLen))
+                        .coerceIn(0f, 1f)
+                    val nearX = x1 + t * edgeDx
+                    val nearY = y1 + t * edgeDy
+                    val dist  = Math.sqrt(((ex - nearX) * (ex - nearX) + (ey - nearY) * (ey - nearY)).toDouble())
+                    if (dist < radius) { touched = true; break }
+                }
+                touched
+            }
+            else -> false
+        }
+    }
+    private fun isStrokeTouchedByEraser(stroke: StrokeModel, ex: Float, ey: Float, radius: Float): Boolean {
+        return stroke.points.any { point ->
+            val dx = ex - point[0]
+            val dy = ey - point[1]
+            Math.sqrt((dx * dx + dy * dy).toDouble()) < radius
+        }
+    }
+
+    private fun isTextTouchedByEraser(text: TextModel, ex: Float, ey: Float, radius: Float): Boolean {
+        return ex > text.positionX - radius &&
+                ex < text.positionX + 200 + radius &&
+                ey > text.positionY - text.size - radius &&
+                ey < text.positionY + radius
+    }
     fun deleteTextAt(index: Int) {
         pushUndoSnapshot()
         val list = _texts.value.toMutableList()

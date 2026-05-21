@@ -50,14 +50,14 @@ class MainActivity : AppCompatActivity() {
     }
     private fun setupCanvas() {
         binding.whiteboardView.apply {
+            // ✅ All callbacks must be here
             onStrokeComplete = { stroke -> viewModel.addStroke(stroke) }
             onShapeComplete  = { shape -> viewModel.addShape(shape) }
             onTextTap        = { x, y -> showTextInputDialog(x, y) }
+            onTextEditRequest = { index, existing -> showTextEditDialog(index, existing) }
 
-            // NEW: tap existing text to edit it
-            onTextEditRequest = { index, existing ->
-                showTextEditDialog(index, existing)
-            }
+            onEraseBegin = { viewModel.beginErase() }
+            onEraseAt    = { x, y, radius -> viewModel.removeShapesInArea(x, y, radius) }
         }
     }
     private fun showTextEditDialog(index: Int, existing: TextModel) {

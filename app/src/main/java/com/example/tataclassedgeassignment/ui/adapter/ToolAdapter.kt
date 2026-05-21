@@ -5,6 +5,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageButton
+import android.widget.ImageView
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import com.example.tataclassedgeassignment.R
@@ -56,9 +57,8 @@ class ToolAdapter(
         if (old >= 0) notifyItemChanged(old)
         if (new >= 0) notifyItemChanged(new)
     }
-
     class ToolViewHolder(view: View) : RecyclerView.ViewHolder(view) {
-        private val btn: ImageButton = view.findViewById(R.id.toolIcon)
+        private val btn: ImageView = view.findViewById(R.id.toolIcon) // ImageView now
         private val label: TextView = view.findViewById(R.id.toolLabel)
 
         fun bind(item: ToolItem, isSelected: Boolean, onClick: (ToolItem) -> Unit) {
@@ -72,6 +72,23 @@ class ToolAdapter(
             itemView.setOnClickListener { onClick(item) }
         }
     }
+    /*class ToolViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+        private val btn: ImageButton = view.findViewById(R.id.toolIcon)
+        private val label: TextView = view.findViewById(R.id.toolLabel)
 
+        fun bind(item: ToolItem, isSelected: Boolean, onClick: (ToolItem) -> Unit) {
+            btn.setImageResource(item.iconRes)
+            label.text = item.label
+            itemView.isSelected = isSelected
+            itemView.setBackgroundResource(
+                if (isSelected) R.drawable.tool_button_selected_bg
+                else R.drawable.tool_button_bg
+            )
+            btn.setOnClickListener(null)
+            itemView.setOnClickListener { onClick(item) }
+           // itemView.setOnClickListener { onClick(item) }
+        }
+    }
+*/
     class DividerViewHolder(view: View) : RecyclerView.ViewHolder(view)
 }
