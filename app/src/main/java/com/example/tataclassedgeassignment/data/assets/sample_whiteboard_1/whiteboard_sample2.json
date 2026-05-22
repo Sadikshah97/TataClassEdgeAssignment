@@ -1,0 +1,46 @@
+{
+    "strokes": [
+        {
+            "points": [[50, 50], [100, 100], [150, 50], [200, 100]],
+            "color": "#9B59B6",
+            "width": 8,
+            "isEraser": false
+        }
+    ],
+    "shapes": [
+        {
+            "type": "line",
+            "startX": 100,
+            "startY": 300,
+            "endX": 900,
+            "endY": 300,
+            "color": "#000000",
+            "strokeWidth": 3
+        },
+        {
+            "type": "polygon",
+            "startX": 400,
+            "startY": 150,
+            "endX": 650,
+            "endY": 400,
+            "color": "#E74C3C",
+            "strokeWidth": 4
+        }
+    ],
+    "texts": [
+        {
+            "text": "Math Class - Grade 5",
+            "positionX": 200,
+            "positionY": 100,
+            "color": "#2C3E50",
+            "size": 56
+        },
+        {
+            "text": "Draw a triangle below:",
+            "positionX": 200,
+            "positionY": 250,
+            "color": "#7F8C8D",
+            "size": 36
+        }
+    ]
+}

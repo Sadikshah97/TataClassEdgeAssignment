@@ -17,6 +17,15 @@
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent">
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_marginTop="5dp"
+            android:layout_height="wrap_content"
+            android:text="Tools"
+            android:textSize="15sp"
+            android:fontFamily="@string/bottom_sheet_behavior"
+            android:textColor="#000"
+            android:layout_marginBottom="4dp"/>
 
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/toolsRecyclerView"
@@ -45,16 +54,18 @@
         <!-- Colors label -->
         <TextView
             android:layout_width="wrap_content"
+            android:layout_marginTop="5dp"
             android:layout_height="wrap_content"
             android:text="Color"
-            android:textSize="9sp"
-
-            android:textColor="#999999"
+            android:textSize="15sp"
+            android:fontFamily="@string/bottom_sheet_behavior"
+            android:textColor="#000"
             android:layout_marginBottom="4dp"/>
 
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/colorsRecyclerView"
             android:layout_width="match_parent"
+            android:layout_marginVertical="10dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:scrollbars="none"
@@ -101,6 +112,14 @@
             android:layout_height="36dp"
             android:text="Load"
             android:textSize="9sp"/>
+        <Button
+            android:id="@+id/btnExport"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="60dp"
+            android:layout_height="36dp"
+            android:text="PNG"
+            android:textSize="9sp"
+            android:layout_marginTop="6dp"/>
 
     </LinearLayout>
 

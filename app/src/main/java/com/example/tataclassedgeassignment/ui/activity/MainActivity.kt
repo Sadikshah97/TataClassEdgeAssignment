@@ -45,19 +45,24 @@ class MainActivity : AppCompatActivity() {
         }
         binding.btnSave.setOnClickListener { viewModel.saveWhiteboard() }
         binding.btnLoad.setOnClickListener { showLoadDialog() }
-
+        binding.btnExport.setOnClickListener {
+            viewModel.exportAsPng(binding.whiteboardView, this)
+        }
         observeViewModel()
     }
     private fun setupCanvas() {
         binding.whiteboardView.apply {
             // ✅ All callbacks must be here
             onStrokeComplete = { stroke -> viewModel.addStroke(stroke) }
-            onShapeComplete  = { shape -> viewModel.addShape(shape) }
+            onShapeComplete = { shape ->
+                viewModel.addShape(shape)
+            }
             onTextTap        = { x, y -> showTextInputDialog(x, y) }
             onTextEditRequest = { index, existing -> showTextEditDialog(index, existing) }
 
             onEraseBegin = { viewModel.beginErase() }
             onEraseAt    = { x, y, radius -> viewModel.removeShapesInArea(x, y, radius) }
+            onTextMoved = { index, x, y -> viewModel.moveTextAt(index, x, y) }
         }
     }
     private fun showTextEditDialog(index: Int, existing: TextModel) {
@@ -163,7 +168,9 @@ class MainActivity : AppCompatActivity() {
             }
         }
         lifecycleScope.launch {
-            viewModel.strokes.collect { binding.whiteboardView.updateStrokes(it) }
+            viewModel.strokes.collect { strokes ->
+                binding.whiteboardView.updateStrokes(strokes)
+            }
         }
         lifecycleScope.launch {
             viewModel.shapes.collect { binding.whiteboardView.updateShapes(it) }
@@ -179,8 +186,14 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
-    }
+        lifecycleScope.launch {
+            viewModel.undoSignal.collect {
+                binding.whiteboardView.clearEraserPaths()
+            }
+        }
+        // ✅ ADD THIS — clears eraser paths on undo/redo
 
+    }
     // ✅ Now uses toolAdapter.setSelected() instead of old binding references
     private fun updateToolHighlight(state: ToolState) {
         val selectedId = when (state.activeTool) {
@@ -200,7 +213,12 @@ class MainActivity : AppCompatActivity() {
         AlertDialog.Builder(this)
             .setTitle("Clear Canvas")
             .setMessage("Clear everything?")
-            .setPositiveButton("Clear") { _, _ -> viewModel.clearCanvas() }
+            .setPositiveButton("Clear") { _, _ ->
+                viewModel.clearCanvas()
+                binding.whiteboardView.clearEraserPaths() // ✅ wapas add karo
+
+                // binding.whiteboardView.clearEraserPaths() // ✅ ADD THIS
+            }
             .setNegativeButton("Cancel", null)
             .show()
     }

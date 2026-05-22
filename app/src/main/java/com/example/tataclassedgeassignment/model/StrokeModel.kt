@@ -1,10 +1,10 @@
 package com.example.tataclassedgeassignment.model
 
-// models/DrawingModels.kt
-
 import com.google.gson.annotations.SerializedName
+import java.util.UUID
 
 data class StrokeModel(
+    @Transient val id: String = UUID.randomUUID().toString(), // ← @Transient excludes from Gson
     @SerializedName("points") val points: List<List<Float>>,
     @SerializedName("color") val color: String,
     @SerializedName("width") val width: Float,
@@ -12,7 +12,8 @@ data class StrokeModel(
 )
 
 data class ShapeModel(
-    @SerializedName("type") val type: String,      // "rectangle", "circle", "line", "polygon"
+    @Transient val id: String = UUID.randomUUID().toString(),
+    @SerializedName("type") val type: String,
     @SerializedName("startX") val startX: Float,
     @SerializedName("startY") val startY: Float,
     @SerializedName("endX") val endX: Float,
@@ -22,6 +23,7 @@ data class ShapeModel(
 )
 
 data class TextModel(
+    @Transient val id: String = UUID.randomUUID().toString(),
     @SerializedName("text") val text: String,
     @SerializedName("positionX") val positionX: Float,
     @SerializedName("positionY") val positionY: Float,

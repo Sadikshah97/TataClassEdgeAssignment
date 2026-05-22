@@ -16,24 +16,32 @@ class WhiteboardView @JvmOverloads constructor(
     attrs: AttributeSet? = null
 ) : View(context, attrs) {
 
+    // ─── Callbacks ───────────────────────────────────────────────
     var onStrokeComplete: ((StrokeModel) -> Unit)? = null
     var onShapeComplete: ((ShapeModel) -> Unit)? = null
     var onTextTap: ((Float, Float) -> Unit)? = null
     var onTextEditRequest: ((Int, TextModel) -> Unit)? = null
     var onEraseAt: ((Float, Float, Float) -> Unit)? = null
     var onEraseBegin: (() -> Unit)? = null
+    var onTextMoved: ((Int, Float, Float) -> Unit)? = null
+    private val eraserPaths = mutableListOf<Pair<Path, Float>>()
 
+    // ─── State ───────────────────────────────────────────────────
     var toolState = ToolState()
-
     private var _strokes = mutableListOf<StrokeModel>()
     private var _shapes  = mutableListOf<ShapeModel>()
     private var _texts   = mutableListOf<TextModel>()
 
-    // ─── SINGLE bitmap — eraser clears everything ─────────────────
+    // ─── Bitmap ──────────────────────────────────────────────────
     private var drawingBitmap: Bitmap? = null
     private var drawingCanvas: Canvas? = null
-    private var needsRedraw = true
+    private var needsRedraw = true  // ← declared BEFORE clearEraserPaths uses it
 
+    // ─── Eraser paths ────────────────────────────────────────────
+
+
+
+    // ─── Drawing state ───────────────────────────────────────────
     private val currentPath   = Path()
     private val currentPoints = mutableListOf<List<Float>>()
     private var shapeStartX   = 0f
@@ -41,7 +49,11 @@ class WhiteboardView @JvmOverloads constructor(
     private var shapeEndX     = 0f
     private var shapeEndY     = 0f
     private var isDrawingShape = false
+    private var draggingTextIndex = -1
+    private var dragOffsetX = 0f
+    private var dragOffsetY = 0f
 
+    // ─── Paints ──────────────────────────────────────────────────
     private val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style      = Paint.Style.STROKE
         strokeCap  = Paint.Cap.ROUND
@@ -62,61 +74,71 @@ class WhiteboardView @JvmOverloads constructor(
     private val bitmapPaint = Paint(Paint.DITHER_FLAG)
 
     // ─── Public update methods ────────────────────────────────────
-    /*fun updateStrokes(strokes: List<StrokeModel>) {
-        _strokes.clear(); _strokes.addAll(strokes)
-        needsRedraw = true; invalidate()
-    }*/
     fun updateStrokes(strokes: List<StrokeModel>) {
         _strokes.clear()
         _strokes.addAll(strokes)
-
-        // Don't redraw everything after erasing
-        if (toolState.activeTool != DrawingTool.ERASER) {
-            needsRedraw = true
-        }
-
+        needsRedraw = true
+        invalidate()
+    }
+    fun clearEraserPaths() {
+        eraserPaths.clear()
+        needsRedraw = true
+        invalidate()
+    }
+    fun updateShapes(shapes: List<ShapeModel>) {
+        _shapes.clear()
+        _shapes.addAll(shapes)
+        needsRedraw = true
         invalidate()
     }
 
-    fun updateShapes(shapes: List<ShapeModel>) {
-        _shapes.clear(); _shapes.addAll(shapes)
-        needsRedraw = true; invalidate()
-    }
 
     fun updateTexts(texts: List<TextModel>) {
-        _texts.clear(); _texts.addAll(texts)
-        needsRedraw = true; invalidate()
+        _texts.clear()
+        _texts.addAll(texts)
+        needsRedraw = true
+        invalidate()
     }
 
+    // ─── Bitmap setup ─────────────────────────────────────────────
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         drawingBitmap?.recycle()
-        // ARGB_8888 so PorterDuff.CLEAR works (makes pixels transparent)
         drawingBitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         drawingCanvas = Canvas(drawingBitmap!!)
         needsRedraw = true
     }
 
+    // ─── Draw ─────────────────────────────────────────────────────
     override fun onDraw(canvas: Canvas) {
-        super.onDraw(canvas) // ← View background #FFFFFF draws here
+        super.onDraw(canvas)
 
         val bmp    = drawingBitmap ?: return
         val bmpCvs = drawingCanvas ?: return
 
         if (needsRedraw) {
-            // Clear to transparent — View's white background shows through
             bmpCvs.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
-            // Draw everything on ONE bitmap — eraser can clear any of it
+
+            // ✅ STEP 1: Pehle pen strokes draw karo
             _strokes.forEach { drawStroke(bmpCvs, it) }
+
+            // ✅ STEP 2: Eraser paths replay karo (sirf strokes cut hongi)
+            eraserPaths.forEach { (path, width) ->
+                eraserPaint.strokeWidth = width
+                bmpCvs.drawPath(path, eraserPaint)
+            }
+
+            // ✅ STEP 3: Shapes aur text SABSE LAST mein draw karo
+            // Eraser paths ke baad draw hongi isliye erase nahi hongi
             _shapes.forEach  { drawShape(bmpCvs, it) }
             _texts.forEach   { drawTextModel(bmpCvs, it) }
+
             needsRedraw = false
         }
 
         canvas.drawBitmap(bmp, 0f, 0f, bitmapPaint)
         drawLivePreview(canvas)
     }
-
     private fun drawLivePreview(canvas: Canvas) {
         when (toolState.activeTool) {
             DrawingTool.PEN -> {
@@ -128,7 +150,6 @@ class WhiteboardView @JvmOverloads constructor(
                 canvas.drawPath(currentPath, strokePaint)
             }
             DrawingTool.ERASER -> {
-                // Show circle cursor so user can see eraser size
                 if (currentPoints.isNotEmpty()) {
                     val last = currentPoints.last()
                     val cursorPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -242,6 +263,7 @@ class WhiteboardView @JvmOverloads constructor(
         return path
     }
 
+    // ─── Touch ───────────────────────────────────────────────────
     override fun onTouchEvent(event: MotionEvent): Boolean {
         val x = event.x
         val y = event.y
@@ -252,10 +274,34 @@ class WhiteboardView @JvmOverloads constructor(
             DrawingTool.LINE,
             DrawingTool.POLYGON -> handleShapeTouch(event, x, y)
             DrawingTool.TEXT -> {
-                if (event.action == MotionEvent.ACTION_UP) {
-                    val tappedIndex = findTextAt(x, y)
-                    if (tappedIndex >= 0) onTextEditRequest?.invoke(tappedIndex, _texts[tappedIndex])
-                    else onTextTap?.invoke(x, y)
+                when (event.action) {
+                    MotionEvent.ACTION_DOWN -> {
+                        val tappedIndex = findTextAt(x, y)
+                        if (tappedIndex >= 0) {
+                            draggingTextIndex = tappedIndex
+                            dragOffsetX = x - _texts[tappedIndex].positionX
+                            dragOffsetY = y - _texts[tappedIndex].positionY
+                        } else {
+                            draggingTextIndex = -1
+                        }
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        if (draggingTextIndex >= 0) {
+                            onTextMoved?.invoke(draggingTextIndex, x - dragOffsetX, y - dragOffsetY)
+                        }
+                    }
+                    MotionEvent.ACTION_UP -> {
+                        if (draggingTextIndex >= 0) {
+                            draggingTextIndex = -1
+                        } else {
+                            val tappedIndex = findTextAt(x, y)
+                            if (tappedIndex >= 0) {
+                                onTextEditRequest?.invoke(tappedIndex, _texts[tappedIndex])
+                            } else {
+                                onTextTap?.invoke(x, y)
+                            }
+                        }
+                    }
                 }
             }
             else -> {}
@@ -284,7 +330,7 @@ class WhiteboardView @JvmOverloads constructor(
                 currentPath.moveTo(x, y)
                 currentPoints.add(listOf(x, y))
                 if (toolState.activeTool == DrawingTool.ERASER) {
-                    onEraseBegin?.invoke() // ← snapshot ONCE
+                    onEraseBegin?.invoke()
                 }
             }
             MotionEvent.ACTION_MOVE -> {
@@ -294,17 +340,23 @@ class WhiteboardView @JvmOverloads constructor(
                 if (toolState.activeTool == DrawingTool.ERASER) {
                     val pts = currentPoints
                     if (pts.size >= 2) {
-                        // ✅ Erase pixels from single bitmap
-                        val erasePath = Path()
                         val prev = pts[pts.size - 2]
                         val curr = pts[pts.size - 1]
+
+                        val erasePath = Path()
                         erasePath.moveTo(prev[0], prev[1])
                         erasePath.lineTo(curr[0], curr[1])
-                        eraserPaint.strokeWidth = toolState.strokeWidth * 4
+                        val eraseWidth = toolState.strokeWidth * 4
+
+                        // ✅ Bitmap pe pixel erase
+                        eraserPaint.strokeWidth = eraseWidth
                         drawingCanvas?.drawPath(erasePath, eraserPaint)
 
-                        // ✅ Remove shapes/strokes/text from ViewModel lists
-                        onEraseAt?.invoke(x, y, toolState.strokeWidth * 4)
+                        // ✅ Save karo replay ke liye
+                        eraserPaths.add(Pair(erasePath, eraseWidth))
+
+                        // ✅ Shapes/texts ko notify karo
+                        onEraseAt?.invoke(x, y, eraseWidth)
                     }
                 }
                 invalidate()
@@ -314,30 +366,18 @@ class WhiteboardView @JvmOverloads constructor(
                 currentPoints.add(listOf(x, y))
 
                 val isEraser = toolState.activeTool == DrawingTool.ERASER
-
                 if (!isEraser) {
                     val colorHex = String.format("#%06X", 0xFFFFFF and toolState.strokeColor)
-                    onStrokeComplete?.invoke(
-                        StrokeModel(
-                            points   = currentPoints.toList(),
-                            color    = colorHex,
-                            width    = toolState.strokeWidth,
-                            isEraser = false
-                        )
-                    )
                     val stroke = StrokeModel(
-                        points = currentPoints.toList(),
-                        color = colorHex,
-                        width = toolState.strokeWidth,
+                        points   = currentPoints.toList(),
+                        color    = colorHex,
+                        width    = toolState.strokeWidth,
                         isEraser = false
                     )
-
                     onStrokeComplete?.invoke(stroke)
                     drawStroke(drawingCanvas ?: return, stroke)
-                    needsRedraw = false // ← only redraw for pen strokes
+                    needsRedraw = false
                 }
-                // ✅ For eraser: pixels already cleared, ViewModel items already removed
-                // needsRedraw stays FALSE → no redraw → nothing comes back
                 currentPath.reset()
                 currentPoints.clear()
                 invalidate()
@@ -378,8 +418,8 @@ class WhiteboardView @JvmOverloads constructor(
                         strokeWidth = toolState.strokeWidth
                     )
                 )
+                // ✅ DO NOT clear eraserPaths here — pen erase must be preserved
                 invalidate()
-            }
-        }
+            }        }
     }
 }

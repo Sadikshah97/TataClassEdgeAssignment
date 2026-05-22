@@ -1,5 +1,10 @@
 package com.example.tataclassedgeassignment.ui.viewmodels
 
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.view.View
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.tataclassedgeassignment.domain.repository.WhiteboardRepository
@@ -22,6 +27,11 @@ class WhiteboardViewModel @Inject constructor(
     private val loadWhiteboardUseCase: LoadWhiteboardUseCase,
     private val repository: WhiteboardRepository
 ) : ViewModel() {
+    private val erasedStrokeIds = mutableSetOf<String>()
+
+    val _undoSignal = MutableStateFlow(0)
+    val undoSignal: StateFlow<Int> = _undoSignal.asStateFlow()
+    private val erasedIds = mutableSetOf<String>()
 
     private val _toolState = MutableStateFlow(ToolState())
     val toolState: StateFlow<ToolState> = _toolState.asStateFlow()
@@ -82,20 +92,76 @@ class WhiteboardViewModel @Inject constructor(
             _texts.value = list
         }
     }
-    fun removeShapesInArea(x: Float, y: Float, radius: Float) {
-        // ❌ Remove pushUndoSnapshot() from here — called on every move event!
-        _shapes.value = _shapes.value.filter { shape ->
-            !isShapeTouchedByEraser(shape, x, y, radius)
+    fun moveTextAt(index: Int, newX: Float, newY: Float) {
+        val list = _texts.value.toMutableList()
+        if (index in list.indices) {
+            list[index] = list[index].copy(positionX = newX, positionY = newY)
+            _texts.value = list
         }
-        /*_strokes.value = _strokes.value.filter { stroke ->
-            !isStrokeTouchedByEraser(stroke, x, y, radius)
-        }*/
-        _texts.value = _texts.value.filter { text ->
-            !isTextTouchedByEraser(text, x, y, radius)
+    }
+    fun exportAsPng(view: View, context: Context) {
+        viewModelScope.launch {
+            try {
+                val bitmap = Bitmap.createBitmap(
+                    view.width, view.height, Bitmap.Config.ARGB_8888
+                )
+                val canvas = Canvas(bitmap)
+                canvas.drawColor(Color.WHITE)
+                view.draw(canvas)
+
+                val fileName = "whiteboard_${
+                    java.text.SimpleDateFormat("yyyyMMdd_HHmmss",
+                        java.util.Locale.getDefault()).format(java.util.Date())
+                }.png"
+
+                val file = java.io.File(
+                    context.getExternalFilesDir(android.os.Environment.DIRECTORY_PICTURES),
+                    fileName
+                )
+                val out = java.io.FileOutputStream(file)
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+                out.flush()
+                out.close()
+
+                _saveMessage.value = "Exported: $fileName"
+            } catch (e: Exception) {
+                _saveMessage.value = "Export failed: ${e.message}"
+            }
         }
     }
 
-    // ✅ Call this ONCE when erase stroke begins
+
+    /*fun removeShapesInArea(x: Float, y: Float, radius: Float) {
+        // Shapes
+        val erasedShapes = _shapes.value.filter { isShapeTouchedByEraser(it, x, y, radius) }
+        erasedIds.addAll(erasedShapes.map { it.id })
+        _shapes.value = _shapes.value.filter { it.id !in erasedIds }
+
+        // Texts
+        val erasedTexts = _texts.value.filter { isTextTouchedByEraser(it, x, y, radius) }
+        erasedIds.addAll(erasedTexts.map { it.id })
+        _texts.value = _texts.value.filter { it.id !in erasedIds }
+
+        // ✅ Strokes bhi remove karo
+        val erasedStrokes = _strokes.value.filter { isStrokeTouchedByEraser(it, x, y, radius) }
+        erasedIds.addAll(erasedStrokes.map { it.id })
+        _strokes.value = _strokes.value.filter { it.id !in erasedIds }
+    }*/
+
+    fun removeShapesInArea(x: Float, y: Float, radius: Float) {
+        // ✅ Shapes → poora remove (touch pe)
+        val erasedShapes = _shapes.value.filter { isShapeTouchedByEraser(it, x, y, radius) }
+        erasedIds.addAll(erasedShapes.map { it.id })
+        _shapes.value = _shapes.value.filter { it.id !in erasedIds }
+
+        // ✅ Texts → poora remove (touch pe)
+        val erasedTexts = _texts.value.filter { isTextTouchedByEraser(it, x, y, radius) }
+        erasedIds.addAll(erasedTexts.map { it.id })
+        _texts.value = _texts.value.filter { it.id !in erasedIds }
+
+        // ✅ Strokes → list se mat hatao
+        // Sirf bitmap pe pixel erase hoga (WhiteboardView handle karega)
+    }
     fun beginErase() {
         pushUndoSnapshot()
         redoStack.clear()
@@ -128,7 +194,6 @@ class WhiteboardViewModel @Inject constructor(
                     ((ex - cx) * (ex - cx) / (rx * rx) +
                             (ey - cy) * (ey - cy) / (ry * ry)).toDouble()
                 )
-                // Near the ellipse stroke (not inside/outside)
                 normalizedDist in 0.7..1.3
             }
 
@@ -207,24 +272,29 @@ class WhiteboardViewModel @Inject constructor(
 
     fun undo() {
         if (undoStack.isEmpty()) return
+        erasedIds.clear()
         redoStack.addLast(Triple(_strokes.value, _shapes.value, _texts.value))
         val (s, sh, t) = undoStack.removeLast()
         _strokes.value = s
         _shapes.value = sh
         _texts.value = t
+        _undoSignal.value++
     }
 
     fun redo() {
         if (redoStack.isEmpty()) return
+        erasedIds.clear()
         undoStack.addLast(Triple(_strokes.value, _shapes.value, _texts.value))
         val (s, sh, t) = redoStack.removeLast()
         _strokes.value = s
         _shapes.value = sh
         _texts.value = t
+        _undoSignal.value++
     }
-
     fun clearCanvas() {
         pushUndoSnapshot()
+        erasedIds.clear()
+        erasedStrokeIds.clear()
         _strokes.value = emptyList()
         _shapes.value = emptyList()
         _texts.value = emptyList()
