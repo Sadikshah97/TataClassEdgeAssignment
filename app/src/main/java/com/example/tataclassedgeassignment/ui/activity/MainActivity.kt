@@ -50,27 +50,37 @@ class MainActivity : AppCompatActivity() {
         }
         observeViewModel()
     }
+
     private fun setupCanvas() {
         binding.whiteboardView.apply {
-            // ✅ All callbacks must be here
-            onStrokeComplete = { stroke -> viewModel.addStroke(stroke) }
+            onStrokeComplete = { stroke ->
+                binding.whiteboardView.saveEraserSnapshot()
+                viewModel.addStroke(stroke)
+            }
             onShapeComplete = { shape ->
+                binding.whiteboardView.saveEraserSnapshot()
                 viewModel.addShape(shape)
             }
-            onTextTap        = { x, y -> showTextInputDialog(x, y) }
+            onTextTap = { x, y -> showTextInputDialog(x, y) }
             onTextEditRequest = { index, existing -> showTextEditDialog(index, existing) }
-
             onEraseBegin = { viewModel.beginErase() }
             onEraseAt    = { x, y, radius -> viewModel.removeShapesInArea(x, y, radius) }
-            onTextMoved = { index, x, y -> viewModel.moveTextAt(index, x, y) }
+            onTextMoved  = { index, x, y -> viewModel.moveTextAt(index, x, y) }
         }
     }
     private fun showTextEditDialog(index: Int, existing: TextModel) {
         val input = EditText(this).apply {
             hint     = "Edit text"
             textSize = 18f
-            setText(existing.text)          // pre-fill with current text
-            setSelection(existing.text.length) // cursor at end
+            setText(existing.text)
+            maxLines = 3
+            minLines = 3
+
+            isSingleLine = false
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                    android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
+            setText(existing.text)
+            setSelection(existing.text.length)
         }
         AlertDialog.Builder(this)
             .setTitle("Edit Text")
@@ -91,13 +101,6 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    /*private fun setupCanvas() {
-        binding.whiteboardView.apply {
-            onStrokeComplete = { stroke -> viewModel.addStroke(stroke) }
-            onShapeComplete = { shape -> viewModel.addShape(shape) }
-            onTextTap = { x, y -> showTextInputDialog(x, y) }
-        }
-    }*/
 
     private fun setupToolRecyclerView() {
         val tools = listOf(
@@ -188,13 +191,11 @@ class MainActivity : AppCompatActivity() {
         }
         lifecycleScope.launch {
             viewModel.undoSignal.collect {
-                binding.whiteboardView.clearEraserPaths()
+                binding.whiteboardView.undoEraserPaths()
             }
         }
-        // ✅ ADD THIS — clears eraser paths on undo/redo
 
     }
-    // ✅ Now uses toolAdapter.setSelected() instead of old binding references
     private fun updateToolHighlight(state: ToolState) {
         val selectedId = when (state.activeTool) {
             DrawingTool.PEN       -> "pen"
@@ -215,9 +216,7 @@ class MainActivity : AppCompatActivity() {
             .setMessage("Clear everything?")
             .setPositiveButton("Clear") { _, _ ->
                 viewModel.clearCanvas()
-                binding.whiteboardView.clearEraserPaths() // ✅ wapas add karo
-
-                // binding.whiteboardView.clearEraserPaths() // ✅ ADD THIS
+                binding.whiteboardView.clearEraserPaths() // ✅ sab clear
             }
             .setNegativeButton("Cancel", null)
             .show()
@@ -227,6 +226,12 @@ class MainActivity : AppCompatActivity() {
         val input = EditText(this).apply {
             hint = "Enter text"
             textSize = 18f
+            maxLines = 3
+            minLines = 3
+            isSingleLine = false
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                    android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
+
         }
         AlertDialog.Builder(this)
             .setTitle("Insert Text")

@@ -73,6 +73,7 @@ class WhiteboardViewModel @Inject constructor(
         redoStack.clear()
     }
 
+
     fun addShape(shape: ShapeModel) {
         pushUndoSnapshot()
         _shapes.value = _shapes.value + shape
@@ -131,22 +132,6 @@ class WhiteboardViewModel @Inject constructor(
     }
 
 
-    /*fun removeShapesInArea(x: Float, y: Float, radius: Float) {
-        // Shapes
-        val erasedShapes = _shapes.value.filter { isShapeTouchedByEraser(it, x, y, radius) }
-        erasedIds.addAll(erasedShapes.map { it.id })
-        _shapes.value = _shapes.value.filter { it.id !in erasedIds }
-
-        // Texts
-        val erasedTexts = _texts.value.filter { isTextTouchedByEraser(it, x, y, radius) }
-        erasedIds.addAll(erasedTexts.map { it.id })
-        _texts.value = _texts.value.filter { it.id !in erasedIds }
-
-        // ✅ Strokes bhi remove karo
-        val erasedStrokes = _strokes.value.filter { isStrokeTouchedByEraser(it, x, y, radius) }
-        erasedIds.addAll(erasedStrokes.map { it.id })
-        _strokes.value = _strokes.value.filter { it.id !in erasedIds }
-    }*/
 
     fun removeShapesInArea(x: Float, y: Float, radius: Float) {
         // ✅ Shapes → poora remove (touch pe)
@@ -162,9 +147,13 @@ class WhiteboardViewModel @Inject constructor(
         // ✅ Strokes → list se mat hatao
         // Sirf bitmap pe pixel erase hoga (WhiteboardView handle karega)
     }
+    private var eraseSnapshotTaken = false
+
     fun beginErase() {
-        pushUndoSnapshot()
-        redoStack.clear()
+       // pushUndoSnapshot()
+       // redoStack.clear()
+        eraseSnapshotTaken = false // reset karo har baar eraser touch pe
+
     }
 
     private fun isShapeTouchedByEraser(shape: ShapeModel, ex: Float, ey: Float, radius: Float): Boolean {

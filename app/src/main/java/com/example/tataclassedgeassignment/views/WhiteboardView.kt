@@ -18,6 +18,7 @@ class WhiteboardView @JvmOverloads constructor(
 
     // ─── Callbacks ───────────────────────────────────────────────
     var onStrokeComplete: ((StrokeModel) -> Unit)? = null
+    private var hasDragged = false
     var onShapeComplete: ((ShapeModel) -> Unit)? = null
     var onTextTap: ((Float, Float) -> Unit)? = null
     var onTextEditRequest: ((Int, TextModel) -> Unit)? = null
@@ -25,6 +26,8 @@ class WhiteboardView @JvmOverloads constructor(
     var onEraseBegin: (() -> Unit)? = null
     var onTextMoved: ((Int, Float, Float) -> Unit)? = null
     private val eraserPaths = mutableListOf<Pair<Path, Float>>()
+    private val eraserPathsHistory = ArrayDeque<List<Pair<Path, Float>>>()
+    private var actionsAfterErase = 0
 
     // ─── State ───────────────────────────────────────────────────
     var toolState = ToolState()
@@ -80,18 +83,40 @@ class WhiteboardView @JvmOverloads constructor(
         needsRedraw = true
         invalidate()
     }
-    fun clearEraserPaths() {
-        eraserPaths.clear()
-        needsRedraw = true
-        invalidate()
-    }
+
     fun updateShapes(shapes: List<ShapeModel>) {
         _shapes.clear()
         _shapes.addAll(shapes)
         needsRedraw = true
         invalidate()
     }
+    fun saveEraserSnapshot() {
+        eraserPathsHistory.addLast(eraserPaths.toList())
+        actionsAfterErase++ // ✅ har action pe count badha
 
+    }
+    fun undoEraserPaths() {
+        actionsAfterErase--
+        if (actionsAfterErase <= 0) {
+            if (eraserPathsHistory.isNotEmpty()) {
+                eraserPaths.clear()
+                eraserPaths.addAll(eraserPathsHistory.removeLast())
+            } else {
+                eraserPaths.clear()
+            }
+            actionsAfterErase = 0
+            needsRedraw = true
+            post { invalidate() }
+        }
+    }
+    fun clearEraserPaths() {
+
+        eraserPaths.clear()
+        eraserPathsHistory.clear()
+        actionsAfterErase = 0
+        needsRedraw = true
+        invalidate()
+    }
 
     fun updateTexts(texts: List<TextModel>) {
         _texts.clear()
@@ -274,32 +299,44 @@ class WhiteboardView @JvmOverloads constructor(
             DrawingTool.LINE,
             DrawingTool.POLYGON -> handleShapeTouch(event, x, y)
             DrawingTool.TEXT -> {
-                when (event.action) {
-                    MotionEvent.ACTION_DOWN -> {
-                        val tappedIndex = findTextAt(x, y)
-                        if (tappedIndex >= 0) {
-                            draggingTextIndex = tappedIndex
-                            dragOffsetX = x - _texts[tappedIndex].positionX
-                            dragOffsetY = y - _texts[tappedIndex].positionY
-                        } else {
-                            draggingTextIndex = -1
-                        }
+                when (event.action) {MotionEvent.ACTION_DOWN -> {
+                    val tappedIndex = findTextAt(x, y)
+                    if (tappedIndex >= 0) {
+                        draggingTextIndex = tappedIndex
+                        dragOffsetX = x - _texts[tappedIndex].positionX
+                        dragOffsetY = y - _texts[tappedIndex].positionY
+                    } else {
+                        draggingTextIndex = -1
                     }
+                    // ✅ Track karo ki drag hua ya sirf tap
+                    hasDragged = false
+                }
+
                     MotionEvent.ACTION_MOVE -> {
                         if (draggingTextIndex >= 0) {
-                            onTextMoved?.invoke(draggingTextIndex, x - dragOffsetX, y - dragOffsetY)
+                            // ✅ Sirf tab drag karo jab thoda move hua ho
+                            val dx = x - (_texts[draggingTextIndex].positionX + dragOffsetX)
+                            val dy = y - (_texts[draggingTextIndex].positionY + dragOffsetY)
+                            if (Math.abs(dx) > 10f || Math.abs(dy) > 10f) {
+                                hasDragged = true
+                            }
+                            if (hasDragged) {
+                                onTextMoved?.invoke(draggingTextIndex, x - dragOffsetX, y - dragOffsetY)
+                            }
                         }
                     }
+
                     MotionEvent.ACTION_UP -> {
                         if (draggingTextIndex >= 0) {
-                            draggingTextIndex = -1
-                        } else {
-                            val tappedIndex = findTextAt(x, y)
-                            if (tappedIndex >= 0) {
-                                onTextEditRequest?.invoke(tappedIndex, _texts[tappedIndex])
-                            } else {
-                                onTextTap?.invoke(x, y)
+                            if (!hasDragged) {
+                                // ✅ Drag nahi hua → edit dialog kholo
+                                onTextEditRequest?.invoke(draggingTextIndex, _texts[draggingTextIndex])
                             }
+                            draggingTextIndex = -1
+                            hasDragged = false
+                        } else {
+                            // ✅ Empty area tap → new text add karo
+                            onTextTap?.invoke(x, y)
                         }
                     }
                 }
