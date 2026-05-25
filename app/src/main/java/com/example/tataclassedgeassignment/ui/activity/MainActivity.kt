@@ -50,7 +50,21 @@ class MainActivity : AppCompatActivity() {
         }
         observeViewModel()
     }
+    /*private fun setupCanvas() {
+        binding.whiteboardView.apply {
+            // ✅ All callbacks must be here
+            onStrokeComplete = { stroke -> viewModel.addStroke(stroke) }
+            onShapeComplete = { shape ->
+                viewModel.addShape(shape)
+            }
+            onTextTap        = { x, y -> showTextInputDialog(x, y) }
+            onTextEditRequest = { index, existing -> showTextEditDialog(index, existing) }
 
+            onEraseBegin = { viewModel.beginErase() }
+            onEraseAt    = { x, y, radius -> viewModel.removeShapesInArea(x, y, radius) }
+            onTextMoved = { index, x, y -> viewModel.moveTextAt(index, x, y) }
+        }
+    }*/
     private fun setupCanvas() {
         binding.whiteboardView.apply {
             onStrokeComplete = { stroke ->
@@ -67,8 +81,7 @@ class MainActivity : AppCompatActivity() {
             onEraseAt    = { x, y, radius -> viewModel.removeShapesInArea(x, y, radius) }
             onTextMoved  = { index, x, y -> viewModel.moveTextAt(index, x, y) }
         }
-    }
-    private fun showTextEditDialog(index: Int, existing: TextModel) {
+    }    private fun showTextEditDialog(index: Int, existing: TextModel) {
         val input = EditText(this).apply {
             hint     = "Edit text"
             textSize = 18f
@@ -100,6 +113,7 @@ class MainActivity : AppCompatActivity() {
             .setNegativeButton("Cancel", null)
             .show()
     }
+
 
 
     private fun setupToolRecyclerView() {
@@ -216,7 +230,9 @@ class MainActivity : AppCompatActivity() {
             .setMessage("Clear everything?")
             .setPositiveButton("Clear") { _, _ ->
                 viewModel.clearCanvas()
-                binding.whiteboardView.clearEraserPaths() // ✅ sab clear
+                binding.whiteboardView.clearEraserPaths() // ✅ wapas add karo
+
+                // binding.whiteboardView.clearEraserPaths() // ✅ ADD THIS
             }
             .setNegativeButton("Cancel", null)
             .show()

@@ -20,6 +20,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import androidx.core.graphics.createBitmap
+import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.sin
+import kotlin.math.sqrt
 
 @HiltViewModel
 class WhiteboardViewModel @Inject constructor(
@@ -27,12 +32,16 @@ class WhiteboardViewModel @Inject constructor(
     private val loadWhiteboardUseCase: LoadWhiteboardUseCase,
     private val repository: WhiteboardRepository
 ) : ViewModel() {
+
     private val erasedStrokeIds = mutableSetOf<String>()
 
     val _undoSignal = MutableStateFlow(0)
     val undoSignal: StateFlow<Int> = _undoSignal.asStateFlow()
+
     private val erasedIds = mutableSetOf<String>()
 
+    private val _eraseUndoSignal = MutableStateFlow(0)
+    val eraseUndoSignal: StateFlow<Int> = _eraseUndoSignal.asStateFlow()
     private val _toolState = MutableStateFlow(ToolState())
     val toolState: StateFlow<ToolState> = _toolState.asStateFlow()
 
@@ -51,7 +60,7 @@ class WhiteboardViewModel @Inject constructor(
     private val _savedFiles = MutableStateFlow<List<String>>(emptyList())
     val savedFiles: StateFlow<List<String>> = _savedFiles.asStateFlow()
 
-    // Undo/Redo stacks — each entry is a full snapshot
+   // private val undoStack = ArrayDeque<Quad>()
     private val undoStack = ArrayDeque<Triple<List<StrokeModel>, List<ShapeModel>, List<TextModel>>>()
     private val redoStack = ArrayDeque<Triple<List<StrokeModel>, List<ShapeModel>, List<TextModel>>>()
 
@@ -69,20 +78,20 @@ class WhiteboardViewModel @Inject constructor(
 
     fun addStroke(stroke: StrokeModel) {
         pushUndoSnapshot()
-        _strokes.value = _strokes.value + stroke
+        _strokes.value += stroke
         redoStack.clear()
     }
 
 
     fun addShape(shape: ShapeModel) {
         pushUndoSnapshot()
-        _shapes.value = _shapes.value + shape
+        _shapes.value += shape
         redoStack.clear()
     }
 
     fun addText(text: TextModel) {
         pushUndoSnapshot()
-        _texts.value = _texts.value + text
+        _texts.value += text
         redoStack.clear()
     }
     fun updateTextAt(index: Int, updated: TextModel) {
@@ -103,9 +112,7 @@ class WhiteboardViewModel @Inject constructor(
     fun exportAsPng(view: View, context: Context) {
         viewModelScope.launch {
             try {
-                val bitmap = Bitmap.createBitmap(
-                    view.width, view.height, Bitmap.Config.ARGB_8888
-                )
+                val bitmap = createBitmap(view.width, view.height)
                 val canvas = Canvas(bitmap)
                 canvas.drawColor(Color.WHITE)
                 view.draw(canvas)
@@ -134,24 +141,18 @@ class WhiteboardViewModel @Inject constructor(
 
 
     fun removeShapesInArea(x: Float, y: Float, radius: Float) {
-        // ✅ Shapes → poora remove (touch pe)
         val erasedShapes = _shapes.value.filter { isShapeTouchedByEraser(it, x, y, radius) }
         erasedIds.addAll(erasedShapes.map { it.id })
         _shapes.value = _shapes.value.filter { it.id !in erasedIds }
 
-        // ✅ Texts → poora remove (touch pe)
         val erasedTexts = _texts.value.filter { isTextTouchedByEraser(it, x, y, radius) }
         erasedIds.addAll(erasedTexts.map { it.id })
         _texts.value = _texts.value.filter { it.id !in erasedIds }
 
-        // ✅ Strokes → list se mat hatao
-        // Sirf bitmap pe pixel erase hoga (WhiteboardView handle karega)
     }
     private var eraseSnapshotTaken = false
 
     fun beginErase() {
-       // pushUndoSnapshot()
-       // redoStack.clear()
         eraseSnapshotTaken = false // reset karo har baar eraser touch pe
 
     }
@@ -176,10 +177,10 @@ class WhiteboardViewModel @Inject constructor(
             "circle" -> {
                 val cx = (shape.startX + shape.endX) / 2
                 val cy = (shape.startY + shape.endY) / 2
-                val rx = Math.abs(shape.endX - shape.startX) / 2
-                val ry = Math.abs(shape.endY - shape.startY) / 2
+                val rx = abs(shape.endX - shape.startX) / 2
+                val ry = abs(shape.endY - shape.startY) / 2
                 // Distance from eraser to ellipse boundary
-                val normalizedDist = Math.sqrt(
+                val normalizedDist = sqrt(
                     ((ex - cx) * (ex - cx) / (rx * rx) +
                             (ey - cy) * (ey - cy) / (ry * ry)).toDouble()
                 )
@@ -189,21 +190,21 @@ class WhiteboardViewModel @Inject constructor(
             "line" -> {
                 val dx  = shape.endX - shape.startX
                 val dy  = shape.endY - shape.startY
-                val len = Math.sqrt((dx * dx + dy * dy).toDouble()).toFloat()
+                val len = sqrt((dx * dx + dy * dy).toDouble()).toFloat()
                 if (len == 0f) return false
                 val t = (((ex - shape.startX) * dx + (ey - shape.startY) * dy) / (len * len))
                     .coerceIn(0f, 1f)
                 val nearX = shape.startX + t * dx
                 val nearY = shape.startY + t * dy
-                Math.sqrt(((ex - nearX) * (ex - nearX) + (ey - nearY) * (ey - nearY)).toDouble()) < radius
+                sqrt(((ex - nearX) * (ex - nearX) + (ey - nearY) * (ey - nearY)).toDouble()) < radius
             }
 
             "polygon" -> {
                 val cx     = (shape.startX + shape.endX) / 2
                 val cy     = (shape.startY + shape.endY) / 2
                 val radius2 = minOf(
-                    Math.abs(shape.endX - shape.startX),
-                    Math.abs(shape.endY - shape.startY)
+                    abs(shape.endX - shape.startX),
+                    abs(shape.endY - shape.startY)
                 ) / 2
                 val sides  = 5
                 // Check proximity to each polygon edge
@@ -211,21 +212,22 @@ class WhiteboardViewModel @Inject constructor(
                 for (i in 0 until sides) {
                     val angle1 = (2.0 * Math.PI * i / sides - Math.PI / 2)
                     val angle2 = (2.0 * Math.PI * (i + 1) / sides - Math.PI / 2)
-                    val x1 = cx + radius2 * Math.cos(angle1).toFloat()
-                    val y1 = cy + radius2 * Math.sin(angle1).toFloat()
-                    val x2 = cx + radius2 * Math.cos(angle2).toFloat()
-                    val y2 = cy + radius2 * Math.sin(angle2).toFloat()
+                    val x1 = cx + radius2 * cos(angle1).toFloat()
+                    val y1 = cy + radius2 * sin(angle1).toFloat()
+                    val x2 = cx + radius2 * cos(angle2).toFloat()
+                    val y2 = cy + radius2 * sin(angle2).toFloat()
 
                     // Distance from eraser point to this polygon edge
                     val edgeDx  = x2 - x1
                     val edgeDy  = y2 - y1
-                    val edgeLen = Math.sqrt((edgeDx * edgeDx + edgeDy * edgeDy).toDouble()).toFloat()
+                    val edgeLen = sqrt((edgeDx * edgeDx + edgeDy * edgeDy).toDouble()).toFloat()
                     if (edgeLen == 0f) continue
                     val t = (((ex - x1) * edgeDx + (ey - y1) * edgeDy) / (edgeLen * edgeLen))
                         .coerceIn(0f, 1f)
                     val nearX = x1 + t * edgeDx
                     val nearY = y1 + t * edgeDy
-                    val dist  = Math.sqrt(((ex - nearX) * (ex - nearX) + (ey - nearY) * (ey - nearY)).toDouble())
+                    val dist  =
+                        sqrt(((ex - nearX) * (ex - nearX) + (ey - nearY) * (ey - nearY)).toDouble())
                     if (dist < radius) { touched = true; break }
                 }
                 touched
@@ -233,13 +235,7 @@ class WhiteboardViewModel @Inject constructor(
             else -> false
         }
     }
-    private fun isStrokeTouchedByEraser(stroke: StrokeModel, ex: Float, ey: Float, radius: Float): Boolean {
-        return stroke.points.any { point ->
-            val dx = ex - point[0]
-            val dy = ey - point[1]
-            Math.sqrt((dx * dx + dy * dy).toDouble()) < radius
-        }
-    }
+
 
     private fun isTextTouchedByEraser(text: TextModel, ex: Float, ey: Float, radius: Float): Boolean {
         return ex > text.positionX - radius &&
@@ -255,9 +251,6 @@ class WhiteboardViewModel @Inject constructor(
             _texts.value = list
         }
     }
-    fun updateStrokes(strokes: List<StrokeModel>) {
-        _strokes.value = strokes
-    }
 
     fun undo() {
         if (undoStack.isEmpty()) return
@@ -267,7 +260,7 @@ class WhiteboardViewModel @Inject constructor(
         _strokes.value = s
         _shapes.value = sh
         _texts.value = t
-        _undoSignal.value++
+        _undoSignal.value++ // ← ViewModel data update signal
     }
 
     fun redo() {
@@ -320,5 +313,14 @@ class WhiteboardViewModel @Inject constructor(
     fun clearSaveMessage() {
         _saveMessage.value = null
     }
+    data class EraserStroke(val points: List<Pair<Float, Float>>, val width: Float)
 
+    private val _eraserStrokes = MutableStateFlow<List<EraserStroke>>(emptyList())
+    val eraserStrokes: StateFlow<List<EraserStroke>> = _eraserStrokes.asStateFlow()
+    data class Quad(
+        val strokes: List<StrokeModel>,
+        val shapes: List<ShapeModel>,
+        val texts: List<TextModel>,
+        val eraserStrokes: List<EraserStroke>
+    )
 }
