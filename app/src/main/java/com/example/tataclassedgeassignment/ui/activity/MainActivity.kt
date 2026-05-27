@@ -27,7 +27,6 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private val viewModel: WhiteboardViewModel by viewModels()
-
     private lateinit var toolAdapter: ToolAdapter
     private lateinit var colorAdapter: ColorAdapter
 
@@ -50,47 +49,27 @@ class MainActivity : AppCompatActivity() {
         }
         observeViewModel()
     }
-    /*private fun setupCanvas() {
-        binding.whiteboardView.apply {
-            // ✅ All callbacks must be here
-            onStrokeComplete = { stroke -> viewModel.addStroke(stroke) }
-            onShapeComplete = { shape ->
-                viewModel.addShape(shape)
-            }
-            onTextTap        = { x, y -> showTextInputDialog(x, y) }
-            onTextEditRequest = { index, existing -> showTextEditDialog(index, existing) }
 
-            onEraseBegin = { viewModel.beginErase() }
-            onEraseAt    = { x, y, radius -> viewModel.removeShapesInArea(x, y, radius) }
-            onTextMoved = { index, x, y -> viewModel.moveTextAt(index, x, y) }
-        }
-    }*/
     private fun setupCanvas() {
         binding.whiteboardView.apply {
-            onStrokeComplete = { stroke ->
-                binding.whiteboardView.saveEraserSnapshot()
-                viewModel.addStroke(stroke)
-            }
-            onShapeComplete = { shape ->
-                binding.whiteboardView.saveEraserSnapshot()
-                viewModel.addShape(shape)
-            }
-            onTextTap = { x, y -> showTextInputDialog(x, y) }
+            onStrokeComplete  = { stroke -> viewModel.addStroke(stroke) }
+            onShapeComplete   = { shape -> viewModel.addShape(shape) }
+            onTextTap         = { x, y -> showTextInputDialog(x, y) }
             onTextEditRequest = { index, existing -> showTextEditDialog(index, existing) }
-            onEraseBegin = { viewModel.beginErase() }
-            onEraseAt    = { x, y, radius -> viewModel.removeShapesInArea(x, y, radius) }
-            onTextMoved  = { index, x, y -> viewModel.moveTextAt(index, x, y) }
+            onEraseBegin      = { viewModel.beginErase() }
+            onEraseAt         = { x, y, radius -> viewModel.removeShapesInArea(x, y, radius) }
+            onTextMoved       = { index, x, y -> viewModel.moveTextAt(index, x, y) }
         }
-    }    private fun showTextEditDialog(index: Int, existing: TextModel) {
-        val input = EditText(this).apply {
-            hint     = "Edit text"
-            textSize = 18f
-            setText(existing.text)
-            maxLines = 3
-            minLines = 3
+    }
 
+    private fun showTextEditDialog(index: Int, existing: TextModel) {
+        val input = EditText(this).apply {
+            hint         = "Edit text"
+            textSize     = 18f
+            maxLines     = 3
+            minLines     = 3
             isSingleLine = false
-            inputType = android.text.InputType.TYPE_CLASS_TEXT or
+            inputType    = android.text.InputType.TYPE_CLASS_TEXT or
                     android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
             setText(existing.text)
             setSelection(existing.text.length)
@@ -101,20 +80,15 @@ class MainActivity : AppCompatActivity() {
             .setPositiveButton("Update") { _, _ ->
                 val txt = input.text.toString().trim()
                 if (txt.isNotEmpty()) {
-                    // Replace existing text at same position
-                    val updated = existing.copy(text = txt)
-                    viewModel.updateTextAt(index, updated)
+                    viewModel.updateTextAt(index, existing.copy(text = txt))
                 }
             }
             .setNeutralButton("Delete") { _, _ ->
-                // Delete this text item
                 viewModel.deleteTextAt(index)
             }
             .setNegativeButton("Cancel", null)
             .show()
     }
-
-
 
     private fun setupToolRecyclerView() {
         val tools = listOf(
@@ -166,11 +140,9 @@ class MainActivity : AppCompatActivity() {
             Color.parseColor("#9B59B6"),
             Color.WHITE
         )
-
         colorAdapter = ColorAdapter(colors) { color ->
             viewModel.setStrokeColor(color)
         }
-
         binding.colorsRecyclerView.apply {
             layoutManager = LinearLayoutManager(this@MainActivity)
             adapter = colorAdapter
@@ -190,10 +162,14 @@ class MainActivity : AppCompatActivity() {
             }
         }
         lifecycleScope.launch {
-            viewModel.shapes.collect { binding.whiteboardView.updateShapes(it) }
+            viewModel.shapes.collect {
+                binding.whiteboardView.updateShapes(it)
+            }
         }
         lifecycleScope.launch {
-            viewModel.texts.collect { binding.whiteboardView.updateTexts(it) }
+            viewModel.texts.collect {
+                binding.whiteboardView.updateTexts(it)
+            }
         }
         lifecycleScope.launch {
             viewModel.saveMessage.collect { msg ->
@@ -203,13 +179,8 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
-        lifecycleScope.launch {
-            viewModel.undoSignal.collect {
-                binding.whiteboardView.undoEraserPaths()
-            }
-        }
-
     }
+
     private fun updateToolHighlight(state: ToolState) {
         val selectedId = when (state.activeTool) {
             DrawingTool.PEN       -> "pen"
@@ -230,9 +201,6 @@ class MainActivity : AppCompatActivity() {
             .setMessage("Clear everything?")
             .setPositiveButton("Clear") { _, _ ->
                 viewModel.clearCanvas()
-                binding.whiteboardView.clearEraserPaths() // ✅ wapas add karo
-
-                // binding.whiteboardView.clearEraserPaths() // ✅ ADD THIS
             }
             .setNegativeButton("Cancel", null)
             .show()
@@ -240,14 +208,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun showTextInputDialog(x: Float, y: Float) {
         val input = EditText(this).apply {
-            hint = "Enter text"
-            textSize = 18f
-            maxLines = 3
-            minLines = 3
+            hint         = "Enter text"
+            textSize     = 18f
+            maxLines     = 3
+            minLines     = 3
             isSingleLine = false
-            inputType = android.text.InputType.TYPE_CLASS_TEXT or
+            inputType    = android.text.InputType.TYPE_CLASS_TEXT or
                     android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
-
         }
         AlertDialog.Builder(this)
             .setTitle("Insert Text")
@@ -257,10 +224,10 @@ class MainActivity : AppCompatActivity() {
                 if (txt.isNotEmpty()) {
                     viewModel.addText(
                         TextModel(
-                            text = txt,
+                            text      = txt,
                             positionX = x,
                             positionY = y,
-                            color = String.format(
+                            color     = String.format(
                                 "#%06X",
                                 0xFFFFFF and viewModel.toolState.value.textColor
                             ),

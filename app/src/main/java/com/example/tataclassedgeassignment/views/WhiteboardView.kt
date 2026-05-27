@@ -2,7 +2,6 @@ package com.example.tataclassedgeassignment.views
 
 import android.annotation.SuppressLint
 import android.content.Context
-import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -30,29 +29,26 @@ class WhiteboardView @JvmOverloads constructor(
 
     // ─── Callbacks ───────────────────────────────────────────────
     var onStrokeComplete: ((StrokeModel) -> Unit)? = null
-    private var hasDragged = false
     var onShapeComplete: ((ShapeModel) -> Unit)? = null
     var onTextTap: ((Float, Float) -> Unit)? = null
     var onTextEditRequest: ((Int, TextModel) -> Unit)? = null
     var onEraseAt: ((Float, Float, Float) -> Unit)? = null
     var onEraseBegin: (() -> Unit)? = null
     var onTextMoved: ((Int, Float, Float) -> Unit)? = null
-    private val eraserPaths = mutableListOf<Pair<Path, Float>>()
-    private val eraserPathsHistory = ArrayDeque<List<Pair<Path, Float>>>()
-    private var actionsAfterErase = 0
 
     var toolState = ToolState()
+
+    // ─── Data ────────────────────────────────────────────────────
     private var _strokes = mutableListOf<StrokeModel>()
     private var _shapes  = mutableListOf<ShapeModel>()
     private var _texts   = mutableListOf<TextModel>()
 
-    fun saveEraserSnapshot() {
-        eraserPathsHistory.addLast(eraserPaths.toList())
-        actionsAfterErase++
-    }    private var drawingBitmap: Bitmap? = null
+    // ─── Bitmap ──────────────────────────────────────────────────
+    private var drawingBitmap: android.graphics.Bitmap? = null
     private var drawingCanvas: Canvas? = null
-    private var needsRedraw = true  // ← declared BEFORE clearEraserPaths uses it
+    private var needsRedraw = true
 
+    // ─── Drawing state ───────────────────────────────────────────
     private val currentPath   = Path()
     private val currentPoints = mutableListOf<List<Float>>()
     private var shapeStartX   = 0f
@@ -63,14 +59,15 @@ class WhiteboardView @JvmOverloads constructor(
     private var draggingTextIndex = -1
     private var dragOffsetX = 0f
     private var dragOffsetY = 0f
+    private var hasDragged = false
 
-    var onEraseStrokeComplete: ((List<Pair<Float, Float>>, Float) -> Unit)? = null
+    // ─── Paints ──────────────────────────────────────────────────
     private val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style      = Paint.Style.STROKE
         strokeCap  = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
+        isDither   = true
     }
-
 
     private val eraserPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style      = Paint.Style.STROKE
@@ -100,27 +97,6 @@ class WhiteboardView @JvmOverloads constructor(
         invalidate()
     }
 
-    fun undoEraserPaths() {
-        actionsAfterErase--
-        if (actionsAfterErase <= 0) {
-            if (eraserPathsHistory.isNotEmpty()) {
-                eraserPaths.clear()
-                eraserPaths.addAll(eraserPathsHistory.removeLast())
-            } else {
-                eraserPaths.clear()
-            }
-            actionsAfterErase = 0
-            needsRedraw = true
-            invalidate()
-        }
-    }
-    fun clearEraserPaths() {
-        eraserPaths.clear()
-        eraserPathsHistory.clear()
-        actionsAfterErase = 0
-        needsRedraw = true
-        invalidate()
-    }
     fun updateTexts(texts: List<TextModel>) {
         _texts.clear()
         _texts.addAll(texts)
@@ -128,6 +104,7 @@ class WhiteboardView @JvmOverloads constructor(
         invalidate()
     }
 
+    // ─── Bitmap setup ─────────────────────────────────────────────
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         drawingBitmap?.recycle()
@@ -145,23 +122,16 @@ class WhiteboardView @JvmOverloads constructor(
 
         if (needsRedraw) {
             bmpCvs.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
-
             _strokes.forEach { drawStroke(bmpCvs, it) }
-
-            eraserPaths.forEach { (path, width) ->
-                eraserPaint.strokeWidth = width
-                bmpCvs.drawPath(path, eraserPaint)
-            }
-
             _shapes.forEach  { drawShape(bmpCvs, it) }
             _texts.forEach   { drawTextModel(bmpCvs, it) }
-
             needsRedraw = false
         }
 
         canvas.drawBitmap(bmp, 0f, 0f, bitmapPaint)
         drawLivePreview(canvas)
     }
+
     private fun drawLivePreview(canvas: Canvas) {
         when (toolState.activeTool) {
             DrawingTool.PEN -> {
@@ -186,9 +156,9 @@ class WhiteboardView @JvmOverloads constructor(
             DrawingTool.RECTANGLE -> {
                 if (isDrawingShape) {
                     strokePaint.apply {
-                        color = toolState.strokeColor
+                        color       = toolState.strokeColor
                         strokeWidth = toolState.strokeWidth
-                        xfermode = null
+                        xfermode    = null
                     }
                     canvas.drawRect(shapeStartX, shapeStartY, shapeEndX, shapeEndY, strokePaint)
                 }
@@ -196,9 +166,9 @@ class WhiteboardView @JvmOverloads constructor(
             DrawingTool.CIRCLE -> {
                 if (isDrawingShape) {
                     strokePaint.apply {
-                        color = toolState.strokeColor
+                        color       = toolState.strokeColor
                         strokeWidth = toolState.strokeWidth
-                        xfermode = null
+                        xfermode    = null
                     }
                     val cx = (shapeStartX + shapeEndX) / 2
                     val cy = (shapeStartY + shapeEndY) / 2
@@ -210,11 +180,22 @@ class WhiteboardView @JvmOverloads constructor(
             DrawingTool.LINE -> {
                 if (isDrawingShape) {
                     strokePaint.apply {
-                        color = toolState.strokeColor
+                        color       = toolState.strokeColor
                         strokeWidth = toolState.strokeWidth
-                        xfermode = null
+                        xfermode    = null
                     }
                     canvas.drawLine(shapeStartX, shapeStartY, shapeEndX, shapeEndY, strokePaint)
+                }
+            }
+            DrawingTool.POLYGON -> {
+                if (isDrawingShape) {
+                    strokePaint.apply {
+                        color       = toolState.strokeColor
+                        strokeWidth = toolState.strokeWidth
+                        xfermode    = null
+                    }
+                    val path = buildPolygonPath(shapeStartX, shapeStartY, shapeEndX, shapeEndY, 5)
+                    canvas.drawPath(path, strokePaint)
                 }
             }
             else -> {}
@@ -228,12 +209,12 @@ class WhiteboardView @JvmOverloads constructor(
         for (i in 1 until stroke.points.size) {
             val prev = stroke.points[i - 1]
             val curr = stroke.points[i]
-            path.quadTo(
-                prev[0], prev[1],
-                (prev[0] + curr[0]) / 2,
-                (prev[1] + curr[1]) / 2
-            )
+            val midX = (prev[0] + curr[0]) / 2
+            val midY = (prev[1] + curr[1]) / 2
+            path.quadTo(prev[0], prev[1], midX, midY)
         }
+        val last = stroke.points.last()
+        path.lineTo(last[0], last[1])
         strokePaint.apply {
             color       = stroke.color.toColorInt()
             strokeWidth = stroke.width
@@ -249,7 +230,8 @@ class WhiteboardView @JvmOverloads constructor(
             xfermode    = null
         }
         when (shape.type) {
-            "rectangle" -> canvas.drawRect(shape.startX, shape.startY, shape.endX, shape.endY, strokePaint)
+            "rectangle" -> canvas.drawRect(
+                shape.startX, shape.startY, shape.endX, shape.endY, strokePaint)
             "circle" -> {
                 val cx = (shape.startX + shape.endX) / 2
                 val cy = (shape.startY + shape.endY) / 2
@@ -257,9 +239,11 @@ class WhiteboardView @JvmOverloads constructor(
                 val ry = abs(shape.endY - shape.startY) / 2
                 canvas.drawOval(cx - rx, cy - ry, cx + rx, cy + ry, strokePaint)
             }
-            "line"    -> canvas.drawLine(shape.startX, shape.startY, shape.endX, shape.endY, strokePaint)
+            "line"    -> canvas.drawLine(
+                shape.startX, shape.startY, shape.endX, shape.endY, strokePaint)
             "polygon" -> canvas.drawPath(
-                buildPolygonPath(shape.startX, shape.startY, shape.endX, shape.endY, 5), strokePaint)
+                buildPolygonPath(shape.startX, shape.startY, shape.endX, shape.endY, 5),
+                strokePaint)
         }
     }
 
@@ -277,15 +261,16 @@ class WhiteboardView @JvmOverloads constructor(
         val radius = minOf(abs(x2 - x1), abs(y2 - y1)) / 2
         val path   = Path()
         for (i in 0 until sides) {
-            val angle = (2.0 * Math.PI * i / sides - Math.PI / 2).toFloat()
-            val px    = cx + radius * cos(angle.toDouble()).toFloat()
-            val py    = cy + radius * sin(angle.toDouble()).toFloat()
+            val angle = (2.0 * Math.PI * i / sides - Math.PI / 2)
+            val px    = cx + radius * cos(angle).toFloat()
+            val py    = cy + radius * sin(angle).toFloat()
             if (i == 0) path.moveTo(px, py) else path.lineTo(px, py)
         }
         path.close()
         return path
     }
 
+    // ─── Touch ───────────────────────────────────────────────────
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
         val x = event.x
@@ -296,50 +281,43 @@ class WhiteboardView @JvmOverloads constructor(
             DrawingTool.CIRCLE,
             DrawingTool.LINE,
             DrawingTool.POLYGON -> handleShapeTouch(event, x, y)
-            DrawingTool.TEXT -> {
-                when (event.action) {MotionEvent.ACTION_DOWN -> {
-                    val tappedIndex = findTextAt(x, y)
-                    if (tappedIndex >= 0) {
-                        draggingTextIndex = tappedIndex
-                        dragOffsetX = x - _texts[tappedIndex].positionX
-                        dragOffsetY = y - _texts[tappedIndex].positionY
-                    } else {
-                        draggingTextIndex = -1
-                    }
-                    hasDragged = false
-                }
-
-                    MotionEvent.ACTION_MOVE -> {
-                        if (draggingTextIndex >= 0) {
-                            val dx = x - (_texts[draggingTextIndex].positionX + dragOffsetX)
-                            val dy = y - (_texts[draggingTextIndex].positionY + dragOffsetY)
-                            if (abs(dx) > 10f || abs(dy) > 10f) {
-                                hasDragged = true
-                            }
-                            if (hasDragged) {
-                                onTextMoved?.invoke(draggingTextIndex, x - dragOffsetX, y - dragOffsetY)
-                            }
-                        }
-                    }
-
-                    MotionEvent.ACTION_UP -> {
-                        if (draggingTextIndex >= 0) {
-                            if (!hasDragged) {
-                                // ✅ Drag nahi hua → edit dialog kholo
-                                onTextEditRequest?.invoke(draggingTextIndex, _texts[draggingTextIndex])
-                            }
-                            draggingTextIndex = -1
-                            hasDragged = false
-                        } else {
-                            // ✅ Empty area tap → new text add karo
-                            onTextTap?.invoke(x, y)
-                        }
-                    }
-                }
-            }
+            DrawingTool.TEXT -> handleTextTouch(event, x, y)
             else -> {}
         }
         return true
+    }
+
+    private fun handleTextTouch(event: MotionEvent, x: Float, y: Float) {
+        when (event.action) {
+            MotionEvent.ACTION_DOWN -> {
+                val tappedIndex = findTextAt(x, y)
+                if (tappedIndex >= 0) {
+                    draggingTextIndex = tappedIndex
+                    dragOffsetX = x - _texts[tappedIndex].positionX
+                    dragOffsetY = y - _texts[tappedIndex].positionY
+                    hasDragged = false
+                } else {
+                    draggingTextIndex = -1
+                }
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (draggingTextIndex >= 0) {
+                    hasDragged = true
+                    onTextMoved?.invoke(draggingTextIndex, x - dragOffsetX, y - dragOffsetY)
+                }
+            }
+            MotionEvent.ACTION_UP -> {
+                if (draggingTextIndex >= 0) {
+                    if (!hasDragged) {
+                        onTextEditRequest?.invoke(draggingTextIndex, _texts[draggingTextIndex])
+                    }
+                    draggingTextIndex = -1
+                    hasDragged = false
+                } else {
+                    onTextTap?.invoke(x, y)
+                }
+            }
+        }
     }
 
     private fun findTextAt(x: Float, y: Float): Int {
@@ -363,45 +341,30 @@ class WhiteboardView @JvmOverloads constructor(
                 currentPath.moveTo(x, y)
                 currentPoints.add(listOf(x, y))
                 if (toolState.activeTool == DrawingTool.ERASER) {
-                   // onEraseBegin?.invoke()
+                    onEraseBegin?.invoke()
                 }
             }
             MotionEvent.ACTION_MOVE -> {
-                currentPath.lineTo(x, y)
                 currentPoints.add(listOf(x, y))
-
+                val pts = currentPoints
+                if (pts.size >= 2) {
+                    val prev = pts[pts.size - 2]
+                    val curr = pts[pts.size - 1]
+                    val midX = (prev[0] + curr[0]) / 2
+                    val midY = (prev[1] + curr[1]) / 2
+                    currentPath.quadTo(prev[0], prev[1], midX, midY)
+                } else {
+                    currentPath.lineTo(x, y)
+                }
                 if (toolState.activeTool == DrawingTool.ERASER) {
-                    val pts = currentPoints
-                    if (pts.size >= 2) {
-                        val prev = pts[pts.size - 2]
-                        val curr = pts[pts.size - 1]
-
-                        val erasePath = Path()
-                        erasePath.moveTo(prev[0], prev[1])
-                        erasePath.lineTo(curr[0], curr[1])
-                        val eraseWidth = toolState.strokeWidth * 4
-
-                        eraserPaint.strokeWidth = eraseWidth
-                        drawingCanvas?.drawPath(erasePath, eraserPaint)
-
-                        eraserPaths.add(Pair(erasePath, eraseWidth))
-
-                        onEraseAt?.invoke(x, y, eraseWidth)
-                    }
+                    onEraseAt?.invoke(x, y, toolState.strokeWidth * 4)
                 }
                 invalidate()
             }
             MotionEvent.ACTION_UP -> {
-                currentPath.lineTo(x, y)
                 currentPoints.add(listOf(x, y))
-
                 val isEraser = toolState.activeTool == DrawingTool.ERASER
-
-                if (isEraser) {
-                    // ✅ Eraser stroke complete — ViewModel mein save karo
-                    val points = currentPoints.map { Pair(it[0], it[1]) }
-                    onEraseStrokeComplete?.invoke(points, toolState.strokeWidth * 4)
-                } else {
+                if (!isEraser) {
                     val colorHex = String.format("#%06X", 0xFFFFFF and toolState.strokeColor)
                     val stroke = StrokeModel(
                         points   = currentPoints.toList(),
@@ -410,14 +373,16 @@ class WhiteboardView @JvmOverloads constructor(
                         isEraser = false
                     )
                     onStrokeComplete?.invoke(stroke)
-                    drawStroke(drawingCanvas ?: return, stroke)
-                    needsRedraw = false
+                    needsRedraw = true
+                } else {
+                    needsRedraw = true
                 }
                 currentPath.reset()
                 currentPoints.clear()
                 invalidate()
-            }        }
-    }
+            }
+        }
+    } // ✅ handleFreehandTouch closing brace
 
     private fun handleShapeTouch(event: MotionEvent, x: Float, y: Float) {
         when (event.action) {
@@ -453,6 +418,7 @@ class WhiteboardView @JvmOverloads constructor(
                     )
                 )
                 invalidate()
-            }        }
-    }
-}
+            }
+        }
+    } // ✅ handleShapeTouch closing brace
+} // ✅ class closing brace
