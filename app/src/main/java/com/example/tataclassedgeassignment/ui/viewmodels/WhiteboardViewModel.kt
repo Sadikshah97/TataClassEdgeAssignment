@@ -38,9 +38,16 @@ class WhiteboardViewModel @Inject constructor(
         val strokes: List<StrokeModel>,
         val shapes: List<ShapeModel>,
         val texts: List<TextModel>,
+        val bitmapState: Bitmap? = null  // Add bitmap state
+
     )
     private val _erasedStrokeIds = MutableStateFlow<Set<String>>(emptySet())
     private val erasedIds = mutableSetOf<String>()
+
+
+    var onGetCurrentBitmap: (() -> Bitmap?)? = null
+    var onRestoreBitmap: ((Bitmap) -> Unit)? = null
+    var onClearCanvas: (() -> Unit)? = null
 
     private val _undoSignal = MutableStateFlow(0)
 
@@ -62,7 +69,8 @@ class WhiteboardViewModel @Inject constructor(
 
     private val _saveMessage = MutableStateFlow<String?>(null)
     val saveMessage: StateFlow<String?> = _saveMessage.asStateFlow()
-
+    // Add this property if not already present
+    val undoSignal: StateFlow<Int> = _undoSignal.asStateFlow()
     private val _savedFiles = MutableStateFlow<List<String>>(emptyList())
     val savedFiles: StateFlow<List<String>> = _savedFiles.asStateFlow()
 
@@ -73,6 +81,8 @@ class WhiteboardViewModel @Inject constructor(
     fun setTool(tool: DrawingTool) {
         _toolState.value = _toolState.value.copy(activeTool = tool)
     }
+
+
 
     fun setStrokeColor(color: Int) {
         _toolState.value = _toolState.value.copy(strokeColor = color)
@@ -104,6 +114,14 @@ class WhiteboardViewModel @Inject constructor(
 
 
     // ─── Text ─────────────────────────────────────────────────────
+    /*fun updateTextAt(index: Int, updated: TextModel) {
+        pushUndoSnapshot()
+        val list = _texts.value.toMutableList()
+        if (index in list.indices) {
+            list[index] = updated
+            _texts.value = list
+        }
+    }*/
     fun updateTextAt(index: Int, updated: TextModel) {
         pushUndoSnapshot()
         val list = _texts.value.toMutableList()
@@ -111,14 +129,16 @@ class WhiteboardViewModel @Inject constructor(
             list[index] = updated
             _texts.value = list
         }
+        redoStack.clear()
     }
-
     fun moveTextAt(index: Int, newX: Float, newY: Float) {
+        pushUndoSnapshot()
         val list = _texts.value.toMutableList()
         if (index in list.indices) {
             list[index] = list[index].copy(positionX = newX, positionY = newY)
             _texts.value = list
         }
+        redoStack.clear()
     }
 
     fun deleteTextAt(index: Int) {
@@ -128,124 +148,86 @@ class WhiteboardViewModel @Inject constructor(
             list.removeAt(index)
             _texts.value = list
         }
+        redoStack.clear()
     }
 
     // ─── Eraser ───────────────────────────────────────────────────
     fun beginErase() {
-        pushUndoSnapshot()
+        pushUndoSnapshot()  // Save state BEFORE each erase stroke
         redoStack.clear()
     }
-
-    fun removeShapesInArea(x: Float, y: Float, radius: Float) {
-        // Shapes — poora erase
-        val erasedShapes = _shapes.value.filter { isShapeTouchedByEraser(it, x, y, radius) }
-        if (erasedShapes.isNotEmpty()) {
-            erasedIds.addAll(erasedShapes.map { it.id })
-            _shapes.value = _shapes.value.filter { it.id !in erasedIds }
-        }
-
-        // Texts — poora erase
-        val erasedTexts = _texts.value.filter { isTextTouchedByEraser(it, x, y, radius) }
-        if (erasedTexts.isNotEmpty()) {
-            erasedIds.addAll(erasedTexts.map { it.id })
-            _texts.value = _texts.value.filter { it.id !in erasedIds }
-        }
-
-        // ✅ Strokes — pixel based split erase
-        val newStrokes = mutableListOf<StrokeModel>()
-
-        _strokes.value.forEach { stroke ->
-            val segments = mutableListOf<MutableList<List<Float>>>()
-            var currentSegment = mutableListOf<List<Float>>()
-
-            stroke.points.forEach { point ->
-                val dx = x - point[0]
-                val dy = y - point[1]
-                val dist = kotlin.math.sqrt((dx * dx + dy * dy).toDouble())
-
-                if (dist < radius) {
-                    // ✅ Yeh point eraser ke andar hai — segment tod do
-                    if (currentSegment.size >= 2) {
-                        segments.add(currentSegment)
-                    }
-                    currentSegment = mutableListOf()
-                } else {
-                    // ✅ Yeh point safe hai — segment mein add karo
-                    currentSegment.add(point)
-                }
-            }
-
-            // Last segment save karo
-            if (currentSegment.size >= 2) {
-                segments.add(currentSegment)
-            }
-
-            // ✅ Har segment ek alag stroke ban jayega
-            segments.forEach { seg ->
-                newStrokes.add(
-                    StrokeModel(
-                        points   = seg,
-                        color    = stroke.color,
-                        width    = stroke.width,
-                        isEraser = false
-                    )
-                )
-            }
-        }
-
-        _strokes.value = newStrokes
-    }    fun undo() {
+    fun undo() {
         if (undoStack.isEmpty()) return
         erasedIds.clear()
-        _erasedStrokeIds.value = emptySet() // ✅
+        // Save current state to redo stack
         redoStack.addLast(currentSnapshot())
+        // Restore previous state
         val snap = undoStack.removeLast()
         restoreSnapshot(snap)
         _undoSignal.value++
     }
-
+    fun updateShapeAt(index: Int, updated: ShapeModel) {
+        pushUndoSnapshot()
+        val list = _shapes.value.toMutableList()
+        if (index in list.indices) {
+            list[index] = updated
+            _shapes.value = list
+        }
+        redoStack.clear()
+    }
     fun redo() {
         if (redoStack.isEmpty()) return
         erasedIds.clear()
-        _erasedStrokeIds.value = emptySet() // ✅
+        // Save current state to undo stack
         undoStack.addLast(currentSnapshot())
+        // Restore next state
         val snap = redoStack.removeLast()
         restoreSnapshot(snap)
         _undoSignal.value++
     }
-
     // ─── Clear ────────────────────────────────────────────────────
     fun clearCanvas() {
-        pushUndoSnapshot()
+        // Don't push to undo stack - just clear everything
         erasedIds.clear()
-        _erasedStrokeIds.value = emptySet() // ✅
+        _erasedStrokeIds.value = emptySet()
         _strokes.value = emptyList()
         _shapes.value = emptyList()
         _texts.value = emptyList()
         _eraserStrokes.value = emptyList()
+
+        // Clear both stacks so there's nothing to undo/redo
+        undoStack.clear()
         redoStack.clear()
+
+        onClearCanvas?.invoke()
     }
 
-    // ─── Snapshot helpers ─────────────────────────────────────────
-    private fun currentSnapshot() = Quad(
-        _strokes.value,
-        _shapes.value,
-        _texts.value,
-       // _eraserStrokes.value
-    )
 
+    private fun currentSnapshot(): Quad {
+        return Quad(
+            strokes = _strokes.value.toList(),
+            shapes = _shapes.value.toList(),
+            texts = _texts.value.toList(),
+            bitmapState = onGetCurrentBitmap?.invoke()
+        )
+    }
     private fun restoreSnapshot(snap: Quad) {
         _strokes.value = snap.strokes
         _shapes.value = snap.shapes
         _texts.value = snap.texts
-       // _eraserStrokes.value = snap.eraserStrokes
+
+        snap.bitmapState?.let { bitmap ->
+            onRestoreBitmap?.invoke(bitmap)
+        }
     }
 
     private fun pushUndoSnapshot() {
         undoStack.addLast(currentSnapshot())
-        if (undoStack.size > 50) undoStack.removeFirst()
+        // Limit stack size to prevent memory issues
+        if (undoStack.size > 50) {
+            undoStack.removeFirst()
+        }
     }
-
     // ─── Save/Load/Export ─────────────────────────────────────────
     fun saveWhiteboard() {
         viewModelScope.launch {
@@ -285,6 +267,7 @@ class WhiteboardViewModel @Inject constructor(
                     bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
                 }
                 _saveMessage.value = "Exported: $fileName"
+                bitmap.recycle()
             } catch (e: Exception) {
                 _saveMessage.value = "Export failed: ${e.message}"
             }
@@ -298,6 +281,11 @@ class WhiteboardViewModel @Inject constructor(
     fun clearSaveMessage() {
         _saveMessage.value = null
     }
+
+    override fun onCleared() {
+        super.onCleared()
+    }
+
 
     // ─── Hit detection ────────────────────────────────────────────
     private fun isShapeTouchedByEraser(shape: ShapeModel, ex: Float, ey: Float, radius: Float): Boolean {

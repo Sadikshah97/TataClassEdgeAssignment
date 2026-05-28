@@ -52,16 +52,27 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupCanvas() {
         binding.whiteboardView.apply {
-            onStrokeComplete  = { stroke -> viewModel.addStroke(stroke) }
-            onShapeComplete   = { shape -> viewModel.addShape(shape) }
-            onTextTap         = { x, y -> showTextInputDialog(x, y) }
+            onStrokeComplete = { stroke -> viewModel.addStroke(stroke) }
+            onShapeComplete = { shape -> viewModel.addShape(shape) }
+            onShapeUpdated = { index, shape -> viewModel.updateShapeAt(index, shape) }
+            onTextTap = { x, y -> showTextInputDialog(x, y) }
             onTextEditRequest = { index, existing -> showTextEditDialog(index, existing) }
-            onEraseBegin      = { viewModel.beginErase() }
-            onEraseAt         = { x, y, radius -> viewModel.removeShapesInArea(x, y, radius) }
-            onTextMoved       = { index, x, y -> viewModel.moveTextAt(index, x, y) }
+            onEraseBegin = { viewModel.beginErase() }  // Each erase stroke saves state
+            onTextMoved = { index, x, y -> viewModel.moveTextAt(index, x, y) }
+        }
+
+        viewModel.onGetCurrentBitmap = {
+            binding.whiteboardView.getCurrentBitmap()
+        }
+
+        viewModel.onRestoreBitmap = { bitmap ->
+            binding.whiteboardView.restoreBitmap(bitmap)
+        }
+
+        viewModel.onClearCanvas = {
+            binding.whiteboardView.clearAll()
         }
     }
-
     private fun showTextEditDialog(index: Int, existing: TextModel) {
         val input = EditText(this).apply {
             hint         = "Edit text"
@@ -179,6 +190,12 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+        lifecycleScope.launch {
+            viewModel.undoSignal.collect {
+                binding.whiteboardView.needsRedrawPublic()
+            }
+        }
+
     }
 
     private fun updateToolHighlight(state: ToolState) {
@@ -200,7 +217,8 @@ class MainActivity : AppCompatActivity() {
             .setTitle("Clear Canvas")
             .setMessage("Clear everything?")
             .setPositiveButton("Clear") { _, _ ->
-                viewModel.clearCanvas()
+                viewModel.clearCanvas()  // Clear ViewModel data
+                binding.whiteboardView.clearAll()  // Clear View bitmap
             }
             .setNegativeButton("Cancel", null)
             .show()
