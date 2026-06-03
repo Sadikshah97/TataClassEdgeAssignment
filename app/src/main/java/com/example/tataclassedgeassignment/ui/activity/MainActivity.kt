@@ -57,7 +57,7 @@ class MainActivity : AppCompatActivity() {
             onShapeUpdated = { index, shape -> viewModel.updateShapeAt(index, shape) }
             onTextTap = { x, y -> showTextInputDialog(x, y) }
             onTextEditRequest = { index, existing -> showTextEditDialog(index, existing) }
-            onEraseBegin = { viewModel.beginErase() }  // Each erase stroke saves state
+            onEraseBegin = { viewModel.beginErase() }
             onTextMoved = { index, x, y -> viewModel.moveTextAt(index, x, y) }
         }
 

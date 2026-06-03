@@ -48,7 +48,7 @@ class WhiteboardViewModel @Inject constructor(
     var onGetCurrentBitmap: (() -> Bitmap?)? = null
     var onRestoreBitmap: ((Bitmap) -> Unit)? = null
     var onClearCanvas: (() -> Unit)? = null
-
+    var onEraseModeActive: (() -> Boolean)? = null
     private val _undoSignal = MutableStateFlow(0)
 
 
@@ -73,6 +73,7 @@ class WhiteboardViewModel @Inject constructor(
     val undoSignal: StateFlow<Int> = _undoSignal.asStateFlow()
     private val _savedFiles = MutableStateFlow<List<String>>(emptyList())
     val savedFiles: StateFlow<List<String>> = _savedFiles.asStateFlow()
+    private var useBitmapForUndo = false
 
     private val undoStack = ArrayDeque<Quad>()
     private val redoStack = ArrayDeque<Quad>()
@@ -113,15 +114,7 @@ class WhiteboardViewModel @Inject constructor(
 
 
 
-    // ─── Text ─────────────────────────────────────────────────────
-    /*fun updateTextAt(index: Int, updated: TextModel) {
-        pushUndoSnapshot()
-        val list = _texts.value.toMutableList()
-        if (index in list.indices) {
-            list[index] = updated
-            _texts.value = list
-        }
-    }*/
+
     fun updateTextAt(index: Int, updated: TextModel) {
         pushUndoSnapshot()
         val list = _texts.value.toMutableList()
@@ -153,13 +146,13 @@ class WhiteboardViewModel @Inject constructor(
 
     // ─── Eraser ───────────────────────────────────────────────────
     fun beginErase() {
+        useBitmapForUndo = true
         pushUndoSnapshot()  // Save state BEFORE each erase stroke
         redoStack.clear()
     }
     fun undo() {
         if (undoStack.isEmpty()) return
         erasedIds.clear()
-        // Save current state to redo stack
         redoStack.addLast(currentSnapshot())
         // Restore previous state
         val snap = undoStack.removeLast()
@@ -203,12 +196,20 @@ class WhiteboardViewModel @Inject constructor(
     }
 
 
-    private fun currentSnapshot(): Quad {
+    /*private fun currentSnapshot(): Quad {
         return Quad(
             strokes = _strokes.value.toList(),
             shapes = _shapes.value.toList(),
             texts = _texts.value.toList(),
             bitmapState = onGetCurrentBitmap?.invoke()
+        )
+    }*/
+    private fun currentSnapshot(): Quad {
+        return Quad(
+            strokes = _strokes.value.toList(),
+            shapes = _shapes.value.toList(),
+            texts = _texts.value.toList(),
+            bitmapState = if (useBitmapForUndo) onGetCurrentBitmap?.invoke() else null
         )
     }
     private fun restoreSnapshot(snap: Quad) {
@@ -216,6 +217,7 @@ class WhiteboardViewModel @Inject constructor(
         _shapes.value = snap.shapes
         _texts.value = snap.texts
 
+        // Restore bitmap if available (eraser mode)
         snap.bitmapState?.let { bitmap ->
             onRestoreBitmap?.invoke(bitmap)
         }
@@ -223,7 +225,6 @@ class WhiteboardViewModel @Inject constructor(
 
     private fun pushUndoSnapshot() {
         undoStack.addLast(currentSnapshot())
-        // Limit stack size to prevent memory issues
         if (undoStack.size > 50) {
             undoStack.removeFirst()
         }

@@ -39,9 +39,14 @@ class WhiteboardView @JvmOverloads constructor(
 
     var toolState = ToolState()
 
-    // Single bitmap
-    private var canvasBitmap: Bitmap? = null
-    private var canvasBitmapCanvas: Canvas? = null
+    // Two bitmaps - one for content (strokes+shapes), one for display (content+text)
+    private var contentBitmap: Bitmap? = null
+    private var contentCanvas: Canvas? = null
+    private var displayBitmap: Bitmap? = null
+    private var displayCanvas: Canvas? = null
+
+    private var eraseBitmap: Bitmap? = null
+    private var eraseCanvas: Canvas? = null
 
     // Data models
     private var _strokes = mutableListOf<StrokeModel>()
@@ -49,7 +54,7 @@ class WhiteboardView @JvmOverloads constructor(
     private var _texts = mutableListOf<TextModel>()
 
     // Flags and tracking
-    private var neverRedrawFromModels = false
+    private var neverRedrawContentFromModels = false
     private var lastKnownTexts = mutableListOf<TextModel>()
 
     // Drawing state
@@ -106,103 +111,137 @@ class WhiteboardView @JvmOverloads constructor(
         pathEffect = android.graphics.DashPathEffect(floatArrayOf(10f, 5f), 0f)
     }
 
+    private val eraseOverlayPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+        color = Color.WHITE
+    }
+
+    // Update content bitmap (strokes + shapes only)
+    private fun updateContentBitmap() {
+        val canvas = contentCanvas ?: return
+        canvas.drawColor(Color.WHITE)
+        _strokes.forEach { drawStroke(canvas, it) }
+        _shapes.forEach { drawShape(canvas, it) }
+        eraseBitmap?.let { canvas.drawBitmap(it, 0f, 0f, null) }
+    }
+
+    // Update display bitmap (content + text)
+    private fun updateDisplayBitmap() {
+        val displayCvs = displayCanvas ?: return
+        val contentBmp = contentBitmap ?: return
+
+        displayCvs.drawColor(Color.WHITE)
+        displayCvs.drawBitmap(contentBmp, 0f, 0f, null)
+        _texts.forEach { drawTextModel(displayCvs, it) }
+        eraseBitmap?.let {
+            displayCvs.drawBitmap(it, 0f, 0f, null)
+        }
+    }
+
     fun updateStrokes(strokes: List<StrokeModel>) {
         _strokes.clear()
         _strokes.addAll(strokes)
+        if (!neverRedrawContentFromModels) {
+            updateContentBitmap()
+            updateDisplayBitmap()
+        }
         invalidate()
     }
 
     fun updateShapes(shapes: List<ShapeModel>) {
         _shapes.clear()
         _shapes.addAll(shapes)
+        if (!neverRedrawContentFromModels) {
+            updateContentBitmap()
+            updateDisplayBitmap()
+        }
         invalidate()
     }
 
     fun updateTexts(texts: List<TextModel>) {
-        if (neverRedrawFromModels) {
-            // Find NEW texts only (not in lastKnownTexts)
-            val newTexts = texts.filter { newText ->
-                !lastKnownTexts.any { oldText ->
-                    oldText.text == newText.text &&
-                            oldText.positionX == newText.positionX &&
-                            oldText.positionY == newText.positionY &&
-                            oldText.color == newText.color &&
-                            oldText.size == newText.size
-                }
-            }
-
-            // Find DELETED texts (in lastKnownTexts but not in texts)
-            val deletedCount = lastKnownTexts.count { oldText ->
-                !texts.any { newText ->
-                    newText.text == oldText.text &&
-                            newText.positionX == oldText.positionX &&
-                            newText.positionY == oldText.positionY
-                }
-            }
-
-            // Find MODIFIED texts (same position but different content)
-            val modifiedCount = texts.count { newText ->
-                lastKnownTexts.any { oldText ->
-                    oldText.positionX == newText.positionX &&
-                            oldText.positionY == newText.positionY &&
-                            (oldText.text != newText.text || oldText.color != newText.color || oldText.size != newText.size)
-                }
-            }
-
-            if (deletedCount > 0 || modifiedCount > 0) {
-                // Text was deleted or edited - need full redraw
-                redrawEverythingFromModels()
-            } else if (newTexts.isNotEmpty()) {
-                // Only NEW text added - just draw it on top of existing bitmap
-                newTexts.forEach { text ->
-                    drawTextModel(canvasBitmapCanvas!!, text)
-                }
-            }
-            // If only text moved, the ViewModel handles that separately
-        }
-
+        val oldTexts = _texts.toList()
         _texts.clear()
         _texts.addAll(texts)
         lastKnownTexts.clear()
         lastKnownTexts.addAll(texts)
+
+        if (neverRedrawContentFromModels) {
+            val onlyPositionChanged = texts.size == oldTexts.size &&
+                    texts.zip(oldTexts).all { (newText, oldText) ->
+                        newText.text == oldText.text &&
+                                newText.color == oldText.color &&
+                                newText.size == oldText.size
+                    }
+
+            if (onlyPositionChanged) {
+                // 🔥 FIX: DO NOT call updateDisplayBitmap() here!
+                // Text position already updated during drag. No redraw needed.
+                // Just invalidate to refresh the view.
+            } else {
+                val newTexts = texts.filter { newText ->
+                    !oldTexts.any { oldText ->
+                        oldText.text == newText.text &&
+                                oldText.positionX == newText.positionX &&
+                                oldText.positionY == newText.positionY
+                    }
+                }
+
+                if (newTexts.isNotEmpty() && newTexts.size == texts.size - oldTexts.size) {
+                    newTexts.forEach { text ->
+                        drawTextModel(displayCanvas!!, text)
+                    }
+                } else {
+                    redrawEverythingFromModels()
+                }
+            }
+        } else {
+            updateDisplayBitmap()
+        }
         invalidate()
     }
 
     private fun redrawEverythingFromModels() {
-        val canvas = canvasBitmapCanvas ?: return
-        canvas.drawColor(Color.WHITE)
-        _strokes.forEach { drawStroke(canvas, it) }
-        _shapes.forEach { drawShape(canvas, it) }
-        _texts.forEach { drawTextModel(canvas, it) }
+        updateContentBitmap()
+        updateDisplayBitmap()
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
 
         if (w > 0 && h > 0) {
-            canvasBitmap?.recycle()
-            canvasBitmap = createBitmap(w, h)  // createBitmap creates MUTABLE bitmap
-            canvasBitmapCanvas = Canvas(canvasBitmap!!)
-            canvasBitmap?.eraseColor(Color.WHITE)
-            neverRedrawFromModels = false
+            contentBitmap?.recycle()
+            displayBitmap?.recycle()
+            eraseBitmap?.recycle()
+
+            contentBitmap = createBitmap(w, h)
+            contentCanvas = Canvas(contentBitmap!!)
+
+            displayBitmap = createBitmap(w, h)
+            displayCanvas = Canvas(displayBitmap!!)
+
+            eraseBitmap = createBitmap(w, h)
+            eraseCanvas = Canvas(eraseBitmap!!)
+
+            neverRedrawContentFromModels = false
+            eraseCanvas?.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
             lastKnownTexts.clear()
             redrawEverythingFromModels()
         }
     }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
 
-        val bmp = canvasBitmap ?: return
-        val bmpCanvas = canvasBitmapCanvas ?: return
+        val displayBmp = displayBitmap ?: return
 
-        if (!neverRedrawFromModels) {
-            bmpCanvas.drawColor(Color.WHITE)
-            _strokes.forEach { drawStroke(bmpCanvas, it) }
-            _shapes.forEach { drawShape(bmpCanvas, it) }
-            _texts.forEach { drawTextModel(bmpCanvas, it) }
+        if (!neverRedrawContentFromModels) {
+            updateContentBitmap()
+            updateDisplayBitmap()
         }
 
-        canvas.drawBitmap(bmp, 0f, 0f, bitmapPaint)
+        canvas.drawBitmap(displayBmp, 0f, 0f, bitmapPaint)
         drawLivePreview(canvas)
     }
 
@@ -216,6 +255,7 @@ class WhiteboardView @JvmOverloads constructor(
                 }
                 canvas.drawPath(currentPath, strokePaint)
             }
+
             DrawingTool.ERASER -> {
                 if (currentPoints.isNotEmpty()) {
                     val last = currentPoints.last()
@@ -227,6 +267,7 @@ class WhiteboardView @JvmOverloads constructor(
                     canvas.drawCircle(last[0], last[1], toolState.strokeWidth * 2, cursorPaint)
                 }
             }
+
             DrawingTool.RECTANGLE -> {
                 if (isDrawingShape) {
                     strokePaint.apply {
@@ -237,6 +278,7 @@ class WhiteboardView @JvmOverloads constructor(
                     canvas.drawRect(shapeStartX, shapeStartY, shapeEndX, shapeEndY, strokePaint)
                 }
             }
+
             DrawingTool.CIRCLE -> {
                 if (isDrawingShape) {
                     strokePaint.apply {
@@ -251,6 +293,7 @@ class WhiteboardView @JvmOverloads constructor(
                     canvas.drawOval(cx - rx, cy - ry, cx + rx, cy + ry, strokePaint)
                 }
             }
+
             DrawingTool.LINE -> {
                 if (isDrawingShape) {
                     strokePaint.apply {
@@ -261,6 +304,7 @@ class WhiteboardView @JvmOverloads constructor(
                     canvas.drawLine(shapeStartX, shapeStartY, shapeEndX, shapeEndY, strokePaint)
                 }
             }
+
             DrawingTool.POLYGON -> {
                 if (isDrawingShape) {
                     strokePaint.apply {
@@ -272,9 +316,34 @@ class WhiteboardView @JvmOverloads constructor(
                     canvas.drawPath(path, strokePaint)
                 }
             }
+
+            DrawingTool.TEXT -> {
+                // Show selected text border and resize handle
+                selectedText?.let { text ->
+                    textPaint.apply {
+                        color = text.color.toColorInt()
+                        textSize = text.size
+                    }
+                    val maxWidth = width / 3
+                    val staticLayout = android.text.StaticLayout.Builder
+                        .obtain(text.text, 0, text.text.length, textPaint, maxWidth)
+                        .build()
+                    val left = text.positionX
+                    val top = text.positionY
+                    val right = left + maxWidth.toFloat()
+                    val bottom = top + staticLayout.height.toFloat()
+
+                    // Dashed border around text
+                    canvas.drawRect(left - 5, top - 5, right + 5, bottom + 5, selectionPaint)
+                    // Resize handle at bottom-right
+                    canvas.drawCircle(right + 5, bottom + 5, 16f, handlePaint)
+                }
+            }
+
             else -> {}
         }
 
+        // Shape selection (keep existing)
         selectedShape?.let { shape ->
             val left = minOf(shape.startX, shape.endX)
             val right = maxOf(shape.startX, shape.endX)
@@ -314,7 +383,14 @@ class WhiteboardView @JvmOverloads constructor(
             xfermode = null
         }
         when (shape.type) {
-            "rectangle" -> canvas.drawRect(shape.startX, shape.startY, shape.endX, shape.endY, strokePaint)
+            "rectangle" -> canvas.drawRect(
+                shape.startX,
+                shape.startY,
+                shape.endX,
+                shape.endY,
+                strokePaint
+            )
+
             "circle" -> {
                 val cx = (shape.startX + shape.endX) / 2
                 val cy = (shape.startY + shape.endY) / 2
@@ -322,7 +398,15 @@ class WhiteboardView @JvmOverloads constructor(
                 val ry = abs(shape.endY - shape.startY) / 2
                 canvas.drawOval(cx - rx, cy - ry, cx + rx, cy + ry, strokePaint)
             }
-            "line" -> canvas.drawLine(shape.startX, shape.startY, shape.endX, shape.endY, strokePaint)
+
+            "line" -> canvas.drawLine(
+                shape.startX,
+                shape.startY,
+                shape.endX,
+                shape.endY,
+                strokePaint
+            )
+
             "polygon" -> canvas.drawPath(
                 buildPolygonPath(shape.startX, shape.startY, shape.endX, shape.endY, 5), strokePaint
             )
@@ -371,6 +455,7 @@ class WhiteboardView @JvmOverloads constructor(
             DrawingTool.PEN, DrawingTool.ERASER -> handleFreehandTouch(event, x, y)
             DrawingTool.RECTANGLE, DrawingTool.CIRCLE,
             DrawingTool.LINE, DrawingTool.POLYGON -> handleShapeTouch(event, x, y)
+
             DrawingTool.TEXT -> handleTextTouch(event, x, y)
             else -> {}
         }
@@ -391,9 +476,8 @@ class WhiteboardView @JvmOverloads constructor(
                 lastY = y
 
                 if (toolState.activeTool == DrawingTool.ERASER) {
-                    // Save state BEFORE each erase stroke starts
                     onEraseBegin?.invoke()
-                    neverRedrawFromModels = true
+                    neverRedrawContentFromModels = true
                 }
             }
 
@@ -418,13 +502,18 @@ class WhiteboardView @JvmOverloads constructor(
                         erasePath.lineTo(curr[0], curr[1])
 
                         val eraseWidth = toolState.strokeWidth * 4
+                        eraseOverlayPaint.strokeWidth = eraseWidth
                         eraserPaint.strokeWidth = eraseWidth
                         eraserPaint.style = Paint.Style.STROKE
                         eraserPaint.strokeCap = Paint.Cap.ROUND
                         eraserPaint.strokeJoin = Paint.Join.ROUND
                         eraserPaint.xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
 
-                        canvasBitmapCanvas?.drawPath(erasePath, eraserPaint)
+                        // Erase from BOTH bitmaps
+                        contentCanvas?.drawPath(erasePath, eraserPaint)
+                        displayCanvas?.drawPath(erasePath, eraserPaint)
+                        eraseCanvas?.drawPath(erasePath, eraseOverlayPaint)
+                        contentCanvas?.drawPath(erasePath, eraseOverlayPaint)
                     }
                 }
                 invalidate()
@@ -434,17 +523,21 @@ class WhiteboardView @JvmOverloads constructor(
                 currentPath.lineTo(x, y)
                 currentPoints.add(listOf(x, y))
 
-                if (toolState.activeTool == DrawingTool.ERASER) {
-                    // Erase stroke complete - undo state already saved at ACTION_DOWN
-                    // No additional action needed
-                } else {
-                    // For pen: save state BEFORE drawing (handled by ViewModel)
+                if (toolState.activeTool != DrawingTool.ERASER) {
                     strokePaint.apply {
                         color = toolState.strokeColor
                         strokeWidth = toolState.strokeWidth
                         xfermode = null
                     }
-                    canvasBitmapCanvas?.drawPath(currentPath, strokePaint)
+                    // Draw directly to content bitmap
+                    contentCanvas?.drawPath(currentPath, strokePaint)
+
+                    if (neverRedrawContentFromModels) {
+                        // 🔥 After erase: Draw stroke directly on display too (don't redraw all texts)
+                        displayCanvas?.drawPath(currentPath, strokePaint)
+                    } else {
+                        updateDisplayBitmap()
+                    }
 
                     val colorHex = String.format("#%06X", 0xFFFFFF and toolState.strokeColor)
                     val stroke = StrokeModel(
@@ -462,6 +555,7 @@ class WhiteboardView @JvmOverloads constructor(
             }
         }
     }
+
     private fun handleShapeTouch(event: MotionEvent, x: Float, y: Float) {
         when (event.action) {
             MotionEvent.ACTION_DOWN -> {
@@ -469,13 +563,15 @@ class WhiteboardView @JvmOverloads constructor(
                 if (hitIndex >= 0 && (toolState.activeTool == DrawingTool.RECTANGLE
                             || toolState.activeTool == DrawingTool.CIRCLE
                             || toolState.activeTool == DrawingTool.LINE
-                            || toolState.activeTool == DrawingTool.POLYGON)) {
+                            || toolState.activeTool == DrawingTool.POLYGON)
+                ) {
                     selectedShapeIndex = hitIndex
                     selectedShape = _shapes[hitIndex]
                     originalShape = _shapes[hitIndex]
                     resizeStartX = x
                     resizeStartY = y
                     isResizing = true
+                    isDrawingShape = false
                 } else {
                     selectedShapeIndex = -1
                     selectedShape = null
@@ -496,7 +592,25 @@ class WhiteboardView @JvmOverloads constructor(
                     val updated = orig.copy(endX = orig.endX + dx, endY = orig.endY + dy)
                     _shapes[selectedShapeIndex] = updated
                     selectedShape = updated
-                    redrawEverythingFromModels()
+
+//                    if (neverRedrawContentFromModels) {
+//                        // 🔥 FIX: Draw resized shape directly on display (preserves erased content)
+//                        // Don't call updateContentBitmap() - it would wipe erased pixels!
+//                        displayCanvas?.drawColor(Color.WHITE)
+//                        // Use a temporary copy of content to preserve erased areas
+//                        val tempContent = contentBitmap?.copy(Bitmap.Config.ARGB_8888, false)
+//                        displayCanvas?.drawBitmap(tempContent!!, 0f, 0f, null)
+//                        tempContent?.recycle()
+//                        // Draw only the resized shape on top
+//                        drawShape(displayCanvas!!, updated)
+//                        // Draw texts on top
+//                        _texts.forEach { drawTextModel(displayCanvas!!, it) }
+//                    } else {
+//                        updateContentBitmap()
+//                        updateDisplayBitmap()
+//                    }
+                    updateContentBitmap()
+                    updateDisplayBitmap()
                     invalidate()
                 } else if (isDrawingShape) {
                     shapeEndX = x
@@ -540,7 +654,13 @@ class WhiteboardView @JvmOverloads constructor(
                         strokeWidth = toolState.strokeWidth
                         xfermode = null
                     }
-                    drawShape(canvasBitmapCanvas!!, shape)
+                    drawShape(contentCanvas!!, shape)
+
+                    if (neverRedrawContentFromModels) {
+                        drawShape(displayCanvas!!, shape)
+                    } else {
+                        updateDisplayBitmap()
+                    }
 
                     onShapeComplete?.invoke(shape)
                 }
@@ -549,39 +669,103 @@ class WhiteboardView @JvmOverloads constructor(
         }
     }
 
+    private var selectedTextIndex = -1
+    private var selectedText: TextModel? = null
+    private var isResizingText = false
+    private var textResizeStartSize = 0f
+    private var textResizeStartY = 0f
+    private fun isNearTextResizeHandle(x: Float, y: Float, text: TextModel): Boolean {
+        textPaint.textSize = text.size
+        val maxWidth = width / 3
+        val staticLayout = android.text.StaticLayout.Builder
+            .obtain(text.text, 0, text.text.length, textPaint, maxWidth)
+            .build()
+        val handleX = text.positionX + maxWidth + 5
+        val handleY = text.positionY + staticLayout.height + 5
+        return abs(x - handleX) < 30f && abs(y - handleY) < 30f
+    }
+
     private fun handleTextTouch(event: MotionEvent, x: Float, y: Float) {
         when (event.action) {
             MotionEvent.ACTION_DOWN -> {
+                if (selectedText != null && isNearTextResizeHandle(x, y, selectedText!!)) {
+                    isResizingText = true
+                    textResizeStartSize = selectedText!!.size
+                    textResizeStartY = y
+                    return
+                }
+
                 val tappedIndex = findTextAt(x, y)
                 if (tappedIndex in _texts.indices) {
                     draggingTextIndex = tappedIndex
+                    selectedTextIndex = tappedIndex
+                    selectedText = _texts[tappedIndex]
                     dragOffsetX = x - _texts[tappedIndex].positionX
                     dragOffsetY = y - _texts[tappedIndex].positionY
                     hasDragged = false
+                    isResizingText = false
+                    invalidate()
                 } else {
                     draggingTextIndex = -1
+                    selectedTextIndex = -1
+                    selectedText = null
+                    invalidate()
                 }
             }
+
             MotionEvent.ACTION_MOVE -> {
-                if (draggingTextIndex in _texts.indices) {
+                if (isResizingText && selectedTextIndex in _texts.indices) {
+                    val dy = textResizeStartY - y
+                    val newSize = (textResizeStartSize + dy).coerceIn(20f, 200f)
+                    _texts[selectedTextIndex] = _texts[selectedTextIndex].copy(size = newSize)
+                    selectedText = _texts[selectedTextIndex]
+
+                    if (neverRedrawContentFromModels) {
+                        // 🔥 Use content bitmap (has erased strokes/shapes) + redraw texts
+                        displayCanvas?.drawColor(Color.WHITE)
+                        displayCanvas?.drawBitmap(contentBitmap!!, 0f, 0f, null)
+                        _texts.forEach { drawTextModel(displayCanvas!!, it) }
+                    } else {
+                        updateDisplayBitmap()
+                    }
+                    invalidate()
+                } else if (draggingTextIndex in _texts.indices) {
                     val newX = x - dragOffsetX
                     val newY = y - dragOffsetY
                     val dx = abs(x - (_texts[draggingTextIndex].positionX + dragOffsetX))
                     val dy = abs(y - (_texts[draggingTextIndex].positionY + dragOffsetY))
                     if (dx > 10f || dy > 10f) {
                         hasDragged = true
+                        _texts[draggingTextIndex] = _texts[draggingTextIndex].copy(
+                            positionX = newX,
+                            positionY = newY
+                        )
+                        selectedText = _texts[draggingTextIndex]
+
+                        if (neverRedrawContentFromModels) {
+                            // 🔥 Use content bitmap (has erased strokes/shapes) + redraw texts
+                            displayCanvas?.drawColor(Color.WHITE)
+                            displayCanvas?.drawBitmap(contentBitmap!!, 0f, 0f, null)
+                            _texts.forEach { drawTextModel(displayCanvas!!, it) }
+                        } else {
+                            updateDisplayBitmap()
+                        }
                         onTextMoved?.invoke(draggingTextIndex, newX, newY)
+                        invalidate()
                     }
                 }
             }
+
             MotionEvent.ACTION_UP -> {
-                if (draggingTextIndex in _texts.indices) {
+                if (isResizingText && selectedTextIndex in _texts.indices) {
+                    isResizingText = false
+                } else if (draggingTextIndex in _texts.indices) {
                     if (!hasDragged) {
                         onTextEditRequest?.invoke(draggingTextIndex, _texts[draggingTextIndex])
                     }
                     draggingTextIndex = -1
                     hasDragged = false
-                } else {
+                } else if (selectedText == null) {
                     onTextTap?.invoke(x, y)
                 }
             }
@@ -618,52 +802,46 @@ class WhiteboardView @JvmOverloads constructor(
     }
 
     fun getCurrentBitmap(): Bitmap? {
-        val bmp = canvasBitmap ?: return null
-        // Create a MUTABLE copy
-        return bmp.copy(Bitmap.Config.ARGB_8888, true)  // true = mutable
+        return displayBitmap?.copy(Bitmap.Config.ARGB_8888, true)
     }
 
     fun restoreBitmap(bitmap: Bitmap) {
-        canvasBitmap?.recycle()
-        // Make sure we create a MUTABLE copy
+        displayBitmap?.recycle()
         if (bitmap.isMutable) {
-            canvasBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, true)
+            displayBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, true)
         } else {
-            // If somehow immutable, create a mutable copy
-            canvasBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, true)
-            bitmap.recycle() // Recycle the immutable one
+            displayBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, true)
+            bitmap.recycle()
         }
-        canvasBitmapCanvas = Canvas(canvasBitmap!!)
-        neverRedrawFromModels = true  // Keep this flag after undo/redo
+        displayCanvas = Canvas(displayBitmap!!)
+        neverRedrawContentFromModels = true
         invalidate()
     }
 
     fun clearAll() {
-        // Reset all flags
-        neverRedrawFromModels = false
-
-        // Clear all data
+        neverRedrawContentFromModels = false
         _strokes.clear()
         _shapes.clear()
         _texts.clear()
+        eraseCanvas?.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
         lastKnownTexts.clear()
-
-        // Clear bitmap
-        canvasBitmap?.eraseColor(Color.WHITE)
-
-        // Redraw (will be empty)
-        redrawEverythingFromModels()
-
-        // Force UI update
+        contentCanvas?.drawColor(Color.WHITE)
+        displayCanvas?.drawColor(Color.WHITE)
         invalidate()
     }
+
     fun needsRedrawPublic() {
         invalidate()
     }
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
-        canvasBitmap?.recycle()
-        canvasBitmap = null
+        contentBitmap?.recycle()
+        displayBitmap?.recycle()
+        eraseBitmap?.recycle()
+        eraseBitmap = null
+        contentBitmap = null
+        displayBitmap = null
     }
 }
+
