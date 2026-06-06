@@ -11,6 +11,7 @@ import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
 import android.text.TextPaint
 import android.util.AttributeSet
+import android.graphics.Matrix
 import android.view.MotionEvent
 import android.view.View
 import androidx.core.graphics.createBitmap
@@ -119,25 +120,23 @@ class WhiteboardView @JvmOverloads constructor(
     }
 
     // Update content bitmap (strokes + shapes only)
+
     private fun updateContentBitmap() {
         val canvas = contentCanvas ?: return
         canvas.drawColor(Color.WHITE)
         _strokes.forEach { drawStroke(canvas, it) }
         _shapes.forEach { drawShape(canvas, it) }
-        eraseBitmap?.let { canvas.drawBitmap(it, 0f, 0f, null) }
+        // YE LINE HATA DO: eraseBitmap?.let { canvas.drawBitmap(it, 0f, 0f, null) }
     }
 
     // Update display bitmap (content + text)
     private fun updateDisplayBitmap() {
         val displayCvs = displayCanvas ?: return
         val contentBmp = contentBitmap ?: return
-
         displayCvs.drawColor(Color.WHITE)
         displayCvs.drawBitmap(contentBmp, 0f, 0f, null)
         _texts.forEach { drawTextModel(displayCvs, it) }
-        eraseBitmap?.let {
-            displayCvs.drawBitmap(it, 0f, 0f, null)
-        }
+        // YE LINE HATA DO: eraseBitmap?.let { displayCvs.drawBitmap(it, 0f, 0f, null) }
     }
 
     fun updateStrokes(strokes: List<StrokeModel>) {
@@ -176,9 +175,7 @@ class WhiteboardView @JvmOverloads constructor(
                     }
 
             if (onlyPositionChanged) {
-                // 🔥 FIX: DO NOT call updateDisplayBitmap() here!
-                // Text position already updated during drag. No redraw needed.
-                // Just invalidate to refresh the view.
+                // DO NOT call updateDisplayBitmap() here!
             } else {
                 val newTexts = texts.filter { newText ->
                     !oldTexts.any { oldText ->
@@ -512,8 +509,8 @@ class WhiteboardView @JvmOverloads constructor(
                         // Erase from BOTH bitmaps
                         contentCanvas?.drawPath(erasePath, eraserPaint)
                         displayCanvas?.drawPath(erasePath, eraserPaint)
-                        eraseCanvas?.drawPath(erasePath, eraseOverlayPaint)
-                        contentCanvas?.drawPath(erasePath, eraseOverlayPaint)
+                        // 🔥 KEEP: Record erase for redraws
+                      //  eraseCanvas?.drawPath(erasePath, eraseOverlayPaint)
                     }
                 }
                 invalidate()
@@ -533,7 +530,6 @@ class WhiteboardView @JvmOverloads constructor(
                     contentCanvas?.drawPath(currentPath, strokePaint)
 
                     if (neverRedrawContentFromModels) {
-                        // 🔥 After erase: Draw stroke directly on display too (don't redraw all texts)
                         displayCanvas?.drawPath(currentPath, strokePaint)
                     } else {
                         updateDisplayBitmap()
@@ -555,7 +551,27 @@ class WhiteboardView @JvmOverloads constructor(
             }
         }
     }
+    private var savedEraseBitmap: Bitmap? = null
+    private fun saveEraseBitmapState() {
+        savedEraseBitmap?.recycle()
+        savedEraseBitmap = eraseBitmap?.copy(Bitmap.Config.ARGB_8888, false)
+    }
+    private fun scaleEraseBitmap(scaleX: Float, scaleY: Float) {
+        val saved = savedEraseBitmap ?: return
+        val newW = (saved.width * scaleX).toInt().coerceAtLeast(1)
+        val newH = (saved.height * scaleY).toInt().coerceAtLeast(1)
 
+        val matrix = android.graphics.Matrix()
+        matrix.postScale(scaleX, scaleY)
+
+        val scaled = Bitmap.createBitmap(newW, newH, Bitmap.Config.ARGB_8888)
+        val scaledCanvas = Canvas(scaled)
+        scaledCanvas.drawBitmap(saved, matrix, null)
+
+        eraseBitmap?.recycle()
+        eraseBitmap = scaled
+        eraseCanvas = Canvas(eraseBitmap!!)
+    }
     private fun handleShapeTouch(event: MotionEvent, x: Float, y: Float) {
         when (event.action) {
             MotionEvent.ACTION_DOWN -> {
@@ -567,14 +583,17 @@ class WhiteboardView @JvmOverloads constructor(
                 ) {
                     selectedShapeIndex = hitIndex
                     selectedShape = _shapes[hitIndex]
-                    originalShape = _shapes[hitIndex]
+                    originalShape = _shapes[hitIndex].copy()
                     resizeStartX = x
                     resizeStartY = y
                     isResizing = true
                     isDrawingShape = false
+                    // Save the current erase bitmap as reference for scaling
+                    saveEraseBitmapState()
                 } else {
                     selectedShapeIndex = -1
                     selectedShape = null
+                    originalShape = null
                     shapeStartX = x
                     shapeStartY = y
                     shapeEndX = x
@@ -583,7 +602,6 @@ class WhiteboardView @JvmOverloads constructor(
                     isResizing = false
                 }
             }
-
             MotionEvent.ACTION_MOVE -> {
                 if (isResizing && selectedShapeIndex in _shapes.indices) {
                     val dx = x - resizeStartX
@@ -593,22 +611,7 @@ class WhiteboardView @JvmOverloads constructor(
                     _shapes[selectedShapeIndex] = updated
                     selectedShape = updated
 
-//                    if (neverRedrawContentFromModels) {
-//                        // 🔥 FIX: Draw resized shape directly on display (preserves erased content)
-//                        // Don't call updateContentBitmap() - it would wipe erased pixels!
-//                        displayCanvas?.drawColor(Color.WHITE)
-//                        // Use a temporary copy of content to preserve erased areas
-//                        val tempContent = contentBitmap?.copy(Bitmap.Config.ARGB_8888, false)
-//                        displayCanvas?.drawBitmap(tempContent!!, 0f, 0f, null)
-//                        tempContent?.recycle()
-//                        // Draw only the resized shape on top
-//                        drawShape(displayCanvas!!, updated)
-//                        // Draw texts on top
-//                        _texts.forEach { drawTextModel(displayCanvas!!, it) }
-//                    } else {
-//                        updateContentBitmap()
-//                        updateDisplayBitmap()
-//                    }
+                    // Bina erase ke resize karo - erase marks apni jagah rehte hain
                     updateContentBitmap()
                     updateDisplayBitmap()
                     invalidate()
@@ -618,13 +621,13 @@ class WhiteboardView @JvmOverloads constructor(
                     invalidate()
                 }
             }
-
             MotionEvent.ACTION_UP -> {
                 if (isResizing && selectedShapeIndex in _shapes.indices) {
                     onShapeUpdated?.invoke(selectedShapeIndex, _shapes[selectedShapeIndex])
                     isResizing = false
                     selectedShapeIndex = -1
                     selectedShape = null
+                    originalShape = null
                 } else if (isDrawingShape) {
                     shapeEndX = x
                     shapeEndY = y
@@ -668,12 +671,12 @@ class WhiteboardView @JvmOverloads constructor(
             }
         }
     }
-
     private var selectedTextIndex = -1
     private var selectedText: TextModel? = null
     private var isResizingText = false
     private var textResizeStartSize = 0f
     private var textResizeStartY = 0f
+
     private fun isNearTextResizeHandle(x: Float, y: Float, text: TextModel): Boolean {
         textPaint.textSize = text.size
         val maxWidth = width / 3
@@ -721,7 +724,6 @@ class WhiteboardView @JvmOverloads constructor(
                     selectedText = _texts[selectedTextIndex]
 
                     if (neverRedrawContentFromModels) {
-                        // 🔥 Use content bitmap (has erased strokes/shapes) + redraw texts
                         displayCanvas?.drawColor(Color.WHITE)
                         displayCanvas?.drawBitmap(contentBitmap!!, 0f, 0f, null)
                         _texts.forEach { drawTextModel(displayCanvas!!, it) }
@@ -743,7 +745,6 @@ class WhiteboardView @JvmOverloads constructor(
                         selectedText = _texts[draggingTextIndex]
 
                         if (neverRedrawContentFromModels) {
-                            // 🔥 Use content bitmap (has erased strokes/shapes) + redraw texts
                             displayCanvas?.drawColor(Color.WHITE)
                             displayCanvas?.drawBitmap(contentBitmap!!, 0f, 0f, null)
                             _texts.forEach { drawTextModel(displayCanvas!!, it) }
@@ -839,9 +840,10 @@ class WhiteboardView @JvmOverloads constructor(
         contentBitmap?.recycle()
         displayBitmap?.recycle()
         eraseBitmap?.recycle()
+        savedEraseBitmap?.recycle()
         eraseBitmap = null
+        savedEraseBitmap = null
         contentBitmap = null
         displayBitmap = null
     }
 }
-
